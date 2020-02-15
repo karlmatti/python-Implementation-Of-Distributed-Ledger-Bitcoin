@@ -18,14 +18,12 @@ class MyRequestHandler(socketserver.BaseRequestHandler):
     client.
     """
 
-
     def handle(self):
         # self.request is the TCP socket connected to the client
         self.data = self.request.recv(1024).strip()
         print("{} wrote:".format(self.client_address[0]))
 
         data_list = self.data.decode().split('\n')
-
 
         get_path = data_list[0].split(' ')[1]
         if get_path == '/getpeers':
@@ -34,13 +32,12 @@ class MyRequestHandler(socketserver.BaseRequestHandler):
 
     def get_peers(self):
         json_data = {'peers': []}
-        print('peers-'+sys.argv[1]+'.txt')
-        with open('peers-'+sys.argv[1]+'.txt', 'r+') as lines:
+
+        with open('peers-' + sys.argv[1] + '.txt', 'r') as lines:
             for line in lines:
                 if ':' in line:
                     server = line.split(':')
                     json_data['peers'].append({server[0]: server[1]})
-
 
         return json_data
 
@@ -54,4 +51,7 @@ if __name__ == "__main__":
     server = socketserver.TCPServer((HOST, PORT), MyRequestHandler)
 
     print("Server started on port:", PORT)
+    f = open('peers-' + sys.argv[1] + '.txt', "a")
+    f.close()
+
     server.serve_forever()
