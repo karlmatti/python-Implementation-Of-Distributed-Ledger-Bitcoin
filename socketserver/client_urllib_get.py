@@ -1,6 +1,6 @@
 import urllib.request
 try:
-    url = 'http://127.0.0.1:6000/'
+    url = 'http://127.0.0.1:6000/getpeers'
 
     # now, with the below headers, we defined ourselves as a simpleton who is
     # still using internet explorer.
@@ -11,8 +11,7 @@ try:
     resp = urllib.request.urlopen(req)
     respData = resp.read()
     print('response:' + str(respData))
-    saveFile = open('withHeaders.txt','w')
-    saveFile.write(str(respData))
-    saveFile.close()
+
+
 except Exception as e:
     print(str(e))

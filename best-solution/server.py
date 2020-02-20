@@ -18,17 +18,33 @@ class MyRequestHandler(socketserver.BaseRequestHandler):
     client.
     """
 
+    def __init__(self, request, client_address, server):
+        super().__init__(request, client_address, server)
+
+
     def handle(self):
         # self.request is the TCP socket connected to the client
-        self.data = self.request.recv(1024).strip()
         print("{} wrote:".format(self.client_address[0]))
-
-        data_list = self.data.decode().split('\n')
+        data = self.request.recv(1024).strip()
+        data_list = data.decode().split('\n')
 
         get_path = data_list[0].split(' ')[1]
         if get_path == '/getpeers':
-            print(self.get_peers())
-        self.request.sendall(self.data)
+            app_json = json.dumps(self.get_peers())
+            len_json = len(app_json)
+            headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % len_json
+
+            response = headers + app_json
+            print(response)
+            self.request.sendall(response.encode())
+        else:
+            greeting = 'Hello world!'
+            len_greeting = len(greeting)
+
+            headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: text/html\r\n\r\n' % len_greeting
+            response = headers + greeting
+            print(response)
+            self.request.sendall(response.encode())
 
     def get_peers(self):
         json_data = {'peers': []}
