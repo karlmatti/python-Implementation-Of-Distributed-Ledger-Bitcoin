@@ -74,7 +74,7 @@ class MyRequestHandler(socketserver.BaseRequestHandler):
 if __name__ == "__main__":
     HOST = "localhost"
 
-    PORT = int(sys.argv[1])  # 4000 + random.randrange(4000)
+    PORT = int(sys.argv[1])
 
     # Create the server
     server = socketserver.TCPServer((HOST, PORT), MyRequestHandler)

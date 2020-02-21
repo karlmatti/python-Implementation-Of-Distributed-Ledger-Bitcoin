@@ -1,12 +1,20 @@
 import urllib.request
-url = 'http://127.0.0.1:6000/getpeers'
+url = 'http://127.0.0.1:6001/getpeers'
 #get the result code and print it
 conn = urllib.request.urlopen(url)
 print("result code: " + str(conn.getcode()))
 
 # read the data from the URL and print it
 data = conn.read()
-print (data)
+print(data)
+# TODO: uuenda klienti, info allpool
+# Mina olen localhost:6000
+# teen tsükliliselt /getpeers päringuid serverite vastu, mille saan peers-6000.txt failist
+    # loen localhost:6000 serverite nimekirja
+    # võrdlen localhost:6001 serverite nimekirjaga
+    # kui servereid on 6001'st puudu, siis lisan puudu olevad IP'd post päringuga 6001 serverisse
+
+
 
 
 """
