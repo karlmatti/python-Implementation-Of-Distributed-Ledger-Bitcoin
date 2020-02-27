@@ -45,7 +45,11 @@ def client(ip, port):
         sock.send(request.encode())
         print(request)
         # receive some data
+
         response = sock.recv(4096)
+        if len(response) < 1:
+            # TODO: kustuta peer ära, sest vastus on 404
+            pass
         http_response = repr(response)
         http_response_len = len(http_response)
 
@@ -54,6 +58,7 @@ def client(ip, port):
         print(http_response)
 
         # TODO: vaata mis peerid on olemas ja lisa puudu olevad
+
     finally:
         sock.close()
 
