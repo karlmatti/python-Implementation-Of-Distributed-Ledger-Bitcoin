@@ -2,6 +2,7 @@
 import socketserver
 import json
 import sys
+from time import time
 
 
 def get_servers():
@@ -21,27 +22,28 @@ class MyRequestHandler(socketserver.BaseRequestHandler):
     def __init__(self, request, client_address, server):
         super().__init__(request, client_address, server)
 
-
     def handle(self):
 
         print("%s:%s sent:" % (self.client_address[0], self.client_address[1]))
 
-        data = self.request.recv(1024).strip()
-        data_list = data.decode().split('\n')
+        json_data = self.request.recv(1024).strip()
+        data_list = json_data.decode().split('\n')
         request_method = data_list[0].split(' ')[0]
         request_path = data_list[0].split(' ')[1]
 
         if request_method == 'GET':
 
             if request_path == '/getpeers':
-                app_json = json.dumps(self.get_peers())
-                len_json = len(app_json)
-                headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % len_json
-                response = headers + app_json
-                self.request.sendall(response.encode())
-
+                with open('peers-' + sys.argv[1] + '.json', 'r') as f:
+                    json_data = json.load(f)
+                    app_json = json.dumps(json_data)
+                    len_json = len(app_json)
+                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % len_json
+                    response = headers + app_json
+                    self.request.sendall(response.encode())
+        """
         elif request_method == 'POST':
-
+            
             if request_path == '/':
 
                 json_data = json.loads(data_list[-1])
@@ -57,18 +59,8 @@ class MyRequestHandler(socketserver.BaseRequestHandler):
                 response = headers + body
                 print(response)
                 self.request.sendall(response.encode())
-
-    def get_peers(self):
-        json_data = {'peers': []}
-
-        with open('peers-' + sys.argv[1] + '.txt', 'r') as lines:
-            for line in lines:
-                if ':' in line:
-                    line = line.strip('\n')
-                    server = line.split(':')
-                    json_data['peers'].append({server[0]: server[1]})
-
-        return json_data
+        """
+        
 
 
 if __name__ == "__main__":
@@ -80,7 +72,14 @@ if __name__ == "__main__":
     server = socketserver.TCPServer((HOST, PORT), MyRequestHandler)
 
     print("Server started on port:", PORT)
-    f = open('peers-' + sys.argv[1] + '.txt', "a")
+
+    # Reads default peers from peers-default.json file
+    with open('peers-default.json', 'r') as f:
+        data = json.load(f)
+
+    # Creates or overwrites peers-<PORT>.json file with default peers
+    f = open('peers-' + sys.argv[1] + '.json', "w+")
+    f.write(json.dumps(data))
     f.close()
 
     server.serve_forever()
