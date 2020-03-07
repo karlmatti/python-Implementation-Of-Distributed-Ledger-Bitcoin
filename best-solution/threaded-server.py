@@ -46,7 +46,7 @@ def client(ip, port):
         # receive some data
 
         response = sock.recv(4096)
-        #if len(response) < 1:
+        # if len(response) < 1:
 
         http_response = repr(response)
         http_response_len = len(http_response)
@@ -56,22 +56,20 @@ def client(ip, port):
         # TODO: vaata mis peerid on olemas ja lisa puudu olevad
 
     except socket.error as e:
-        print("Hallo hallo, läksin perse")
-        # TODO: kustuta peer ära, sest vastus on 404
-        with open('peers-' + sys.argv[1] + '.json', 'r+') as f:
 
+        server_address = ip + ':' + str(port)
+        with open('peers-' + sys.argv[1] + '.json', 'r+') as f:  # loeme peers-PORT.json failist serverid sisse
             response_body = json.load(f)
-            print(response_body['peers'])
 
-            server_address = str(ip) + ':' + str(port)
-            print('server_address on ' + server_address)
-            if server_address in response_body['peers']:
+        peers = list(response_body['peers'])
+        deleted_peer_index = peers.index(server_address)
+        peers.pop(deleted_peer_index)  # kustutame serveri nimekirjast
+        response_body['peers'] = peers
 
-                deleted_peer_index = peer.index(server_address)  # See IP peab olema muutujana
-                response_body['peers'].pop(deleted_peer_index)
+        with open('peers-' + sys.argv[1] + '.json', 'w+') as f:  # kirjutame peers-PORT.json faili uuendatud andmed
+            json.dump(response_body, f)
 
-                json_data = json.dumps(response_body)
-                json.dump(json_data,f)
+        print("Error404 - cannot find " + server_address + ", deleted from list.")
 
     finally:
         sock.close()
@@ -111,11 +109,10 @@ if __name__ == "__main__":
             with open('peers-' + sys.argv[1] + '.json', 'r') as f:
                 json_data = json.load(f)
                 for peer in json_data['peers']:
-                    ip,port = peer.split(':')
+                    ip, port = peer.split(':')
                     client(ip, int(port))
             print("10 sec")
             prev = now
         else:
             pass
             # runs
-
