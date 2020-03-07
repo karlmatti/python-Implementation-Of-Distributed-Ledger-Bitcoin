@@ -1,5 +1,5 @@
 import urllib.request
-url = 'http://127.0.0.1:6000/getpeers'
+url = 'http://127.0.0.1:6001/getblocks?port=6001'
 #get the result code and print it
 conn = urllib.request.urlopen(url)
 print("result code: " + str(conn.getcode()))

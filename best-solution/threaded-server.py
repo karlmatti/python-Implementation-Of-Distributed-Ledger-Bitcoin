@@ -20,8 +20,15 @@ class Block:
                           self.timestamp + json.dumps(self.data, separators=(',', ':'))
         return hashlib.sha256(unhashed_string.encode('utf-8')).hexdigest()
     def to_string(self):
-        return str(self.index) +'\n'+ self.previous_hash +'\n'+ \
-                          self.timestamp +'\n'+ json.dumps(self.data, separators=(',', ':'))+'\n'+self.previous_hash
+        return '{"Index": '+str(self.index) +','+\
+                '"Previous Hash": "'+ self.previous_hash +'",'+\
+                '"Timestamp": "' + self.timestamp +'",'+\
+                '"Data": ' + json.dumps(self.data, separators=(',', ':')) +','+\
+                '"Hash": "' +self.previous_hash+\
+                '"}'
+    def to_json(self):
+        return json.dumps(self.to_string(), separators=(',', ':'))
+
 
 class Blockchain:
     def __init__(self):
@@ -56,6 +63,8 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         if request_method == 'GET':
             # TODO: Kui tehakse GET päring /getblocks,
             #  siis tagastada kõik blokid
+            if '/getblocks' in request_path:
+                request_path
 
             # TODO: Kui tehakse GET päring /getblocks/X,
             #  siis tagastada blokid alates X(mis on id hash) blokist
@@ -100,8 +109,43 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
 
+def client_blocks(ip,port):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        print("/getblocks request to " + ip + str(port))
+        sock.connect((ip, port))
 
-def client(ip, port):
+        request = "GET /getblocks?port=%s HTTP/1.1\r\nHost: %s\r\nUser-agent: threaded-server\r\n" % (str(PORT), ip)
+        sock.send(request.encode())
+        print(request)
+        # receive some data
+
+        response = sock.recv(4096)
+        # if len(response) < 1:
+
+        http_response = repr(response)
+        # display the response
+        # print("[RECV] - length: %d" % http_response_len)
+
+        response_body = json.loads(http_response.split("\\r\\n")[-1][0:-1])
+        blocks = response_body['blocks']
+
+        with open('blocks-' + sys.argv[1] + '.json', 'r+') as f:  # loeme peers-PORT.json failist serverid sisse
+            response_body = json.load(f)
+        blocks = set(blocks + response_body['blocks'])
+        response_body['blocks'] = list(blocks)
+
+        print("blocks:", list(blocks))
+
+        with open('blocks-' + sys.argv[1] + '.json', 'w+') as f:  # kirjutame peers-PORT.json faili uuendatud andmed
+            json.dump(response_body, f)
+
+    except socket.error as e:
+        pass
+    finally:
+        sock.close()
+
+def client_peers(ip, port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         print("/getpeers request to " + ip + str(port))
@@ -171,6 +215,8 @@ if __name__ == "__main__":
     server_thread.start()
     # print("Server loop running in thread:", server_thread.name)
 
+
+    #print(str(taltechCoin.get_latest_block().to_string()))
     # Reads default peers from peers-default.json file
     with open('peers-default.json', 'r') as f:
         data = json.load(f)
@@ -179,26 +225,49 @@ if __name__ == "__main__":
     f = open('peers-' + sys.argv[1] + '.json', "w+")
     f.write(json.dumps(data))
     f.close()
+    # Creating data for block
+    taltechCoin = Blockchain()
+    block = Block("1", "01/02/2020",
+                  {"from": "mult",
+                   "to": "sulle",
+                   "amount": 2000000})
+    taltechCoin.add_block(block)
+    blocks_chain = '{"chain": [' + block.to_string() + ']}'
+    blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
+
+    blocks.write(blocks_chain)
+    blocks.close()
+
 
     prev = time()
     while True:
         now = time()
         if now - prev > 10:
-            taltechCoin = Blockchain()
-            block = Block('1', "01/02/2020",
-                          {"from": "mult",
-                           "to": "sulle",
-                           "amount": 2000000})
-            taltechCoin.add_block(block)
-            print(str(taltechCoin.get_latest_block().to_string()))
             with open('peers-' + sys.argv[1] + '.json', 'r') as f:
                 json_data = json.load(f)
                 for peer in json_data['peers']:
                     ip, port = peer.split(':')
-                    client(ip, int(port))
+                    client_peers(ip, int(port))
+            with open('blocks-' + sys.argv[1] + '.json', 'r') as blocks:
+                json_data = json.load(blocks)
+                for block in json_data['chain']:
+                    # TODO: do send all blocks method
+                    # TODO: do send blocks method since X block
+                    # TODO: do send transaction data
+                    client_blocks(ip, int(port))
             # print("10 sec")
             prev = now
         else:
             pass
             # runs
 
+
+
+
+            # taltechCoin = Blockchain()
+            # block = Block('1', "01/02/2020",
+            #               {"from": "mult",
+            #                "to": "sulle",
+            #                "amount": 2000000})
+            # taltechCoin.add_block(block)
+            # print(str(taltechCoin.get_latest_block().to_string()))
