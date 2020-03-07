@@ -12,7 +12,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
     def handle(self):
 
-        #print("%s:%s sent:" % (self.client_address[0], self.client_address[1]))
+        # print("%s:%s sent:" % (self.client_address[0], self.client_address[1]))
 
         json_data = self.request.recv(1024).strip()
         data_list = json_data.decode().split('\n')
@@ -20,8 +20,23 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         request_path = data_list[0].split(' ')[1]
 
         if request_method == 'GET':
+            # TODO: Kui tehakse GET päring /getblocks,
+            #  siis tagastada kõik blokid
 
-            if request_path == '/getpeers':
+            # TODO: Kui tehakse GET päring /getblocks/X,
+            #  siis tagastada blokid alates X(mis on id hash) blokist
+
+            # TODO: Kui tehakse GET päring /getdata/Y,
+            #  siis tagastada konkreetne blokk Y(mis on id hash)
+
+            if '/getpeers' in request_path:
+                request_path_list = request_path.split("?")
+                request_path_list.pop(0)
+                if '&' not in request_path_list[0]:
+                    requester_port = request_path_list[0].split('=')[1]
+                    # TODO: Kui küsija port on peers-PORT.json failist puudu,
+                    #  siis serveri ip+port lisada sinna
+
                 with open('peers-' + sys.argv[1] + '.json', 'r') as f:
                     json_data = json.load(f)
                     app_json = json.dumps(json_data)
@@ -29,7 +44,17 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % len_json
                     response = headers + app_json
                     self.request.sendall(response.encode())
+        elif request_method == 'POST':
+            # TODO: Tuleb realiseerida transaktsioonide laialisaatmine
+            #  (a la Jaan kannab 2018-02-15 Antsule 0.0001 bitcoini)
+            #  request_path = /inv, kus vastuseks on 1 või
+            #  veateade: (näiteks {"errcode": ..., "errmsg": ...})
 
+            # TODO: Uusi blokke saame vastu request_path = /block pealt,
+            #  kus salvestame selle bloki endale (kontrollides bloki id)
+            #  ja saadame edasi. Kui blokk on olemas, siis edasi ei saada.
+            #  vastuseks on 1 või veateade: (näiteks {"errcode": ..., "errmsg": ...})
+            pass
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
@@ -40,9 +65,10 @@ def client(ip, port):
     try:
         print("/getpeers request to " + ip + str(port))
         sock.connect((ip, port))
-        request = "GET /getpeers HTTP/1.1\r\nHost:%s\r\nUser-agent: client_4\r\n" % ip
+
+        request = "GET /getpeers?port=%s HTTP/1.1\r\nHost: %s\r\nUser-agent: threaded-server\r\n" % (str(PORT), ip)
         sock.send(request.encode())
-        #print(request)
+        print(request)
         # receive some data
 
         response = sock.recv(4096)
@@ -51,8 +77,7 @@ def client(ip, port):
         http_response = repr(response)
         http_response_len = len(http_response)
         # display the response
-        #print("[RECV] - length: %d" % http_response_len)
-
+        # print("[RECV] - length: %d" % http_response_len)
 
         response_body = json.loads(http_response.split("\\r\\n")[-1][0:-1])
         peers = response_body['peers']
@@ -103,7 +128,7 @@ if __name__ == "__main__":
     # exit the server thread when the main thread terminates
     server_thread.daemon = True
     server_thread.start()
-    #print("Server loop running in thread:", server_thread.name)
+    # print("Server loop running in thread:", server_thread.name)
 
     # Reads default peers from peers-default.json file
     with open('peers-default.json', 'r') as f:
@@ -123,7 +148,7 @@ if __name__ == "__main__":
                 for peer in json_data['peers']:
                     ip, port = peer.split(':')
                     client(ip, int(port))
-            #print("10 sec")
+            # print("10 sec")
             prev = now
         else:
             pass
