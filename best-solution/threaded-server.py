@@ -4,6 +4,39 @@ import socketserver
 import sys
 import threading
 from time import time
+import hashlib
+
+
+class Block:
+    def __init__(self, index, timestamp, data, previous_hash=""):
+        self.index = index
+        self.timestamp = timestamp
+        self.data = data
+        self.previous_hash = previous_hash
+        self.hash = self.calculate_hash()
+
+    def calculate_hash(self):
+        unhashed_string = str(self.index) + self.previous_hash + \
+                          self.timestamp + json.dumps(self.data, separators=(',', ':'))
+        return hashlib.sha256(unhashed_string.encode('utf-8')).hexdigest()
+    def to_string(self):
+        return str(self.index) +'\n'+ self.previous_hash +'\n'+ \
+                          self.timestamp +'\n'+ json.dumps(self.data, separators=(',', ':'))+'\n'+self.previous_hash
+
+class Blockchain:
+    def __init__(self):
+        self.chain = [self.create_genesis_block()]
+
+    def create_genesis_block(self):
+        return Block(0, "01/01/2020", "Genesis block", "0")
+
+    def get_latest_block(self):
+        return self.chain[len(self.chain) - 1]
+
+    def add_block(self, new_block):
+        new_block.previous_hash = self.get_latest_block().hash
+        new_block.hash = new_block.calculate_hash()
+        self.chain.append(new_block)
 
 
 class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
@@ -44,7 +77,6 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                         with open('peers-' + sys.argv[1] + '.json', 'w+') as f:
                             json.dump(peers, f)
 
-
                 with open('peers-' + sys.argv[1] + '.json', 'r') as f:
                     json_data = json.load(f)
                     app_json = json.dumps(json_data)
@@ -63,6 +95,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             #  ja saadame edasi. Kui blokk on olemas, siis edasi ei saada.
             #  vastuseks on 1 või veateade: (näiteks {"errcode": ..., "errmsg": ...})
             pass
+
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
@@ -151,6 +184,13 @@ if __name__ == "__main__":
     while True:
         now = time()
         if now - prev > 10:
+            taltechCoin = Blockchain()
+            block = Block('1', "01/02/2020",
+                          {"from": "mult",
+                           "to": "sulle",
+                           "amount": 2000000})
+            taltechCoin.add_block(block)
+            print(str(taltechCoin.get_latest_block().to_string()))
             with open('peers-' + sys.argv[1] + '.json', 'r') as f:
                 json_data = json.load(f)
                 for peer in json_data['peers']:
@@ -161,3 +201,4 @@ if __name__ == "__main__":
         else:
             pass
             # runs
+
