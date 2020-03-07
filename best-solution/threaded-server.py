@@ -52,8 +52,21 @@ def client(ip, port):
         http_response_len = len(http_response)
         # display the response
         print("[RECV] - length: %d" % http_response_len)
-        print(http_response)
-        # TODO: vaata mis peerid on olemas ja lisa puudu olevad
+
+
+        response_body = json.loads(http_response.split("\\r\\n")[-1][0:-1])
+        peers = response_body['peers']
+
+        with open('peers-' + sys.argv[1] + '.json', 'r+') as f:  # loeme peers-PORT.json failist serverid sisse
+            response_body = json.load(f)
+            new_peers = []
+            for peer in peers:
+                if peer not in response_body['peers']:
+                    new_peers.append(peer)
+        if response_body['peers']:
+            response_body['peers'] += new_peers
+        with open('peers-' + sys.argv[1] + '.json', 'w+') as f:  # kirjutame peers-PORT.json faili uuendatud andmed
+            json.dump(response_body, f)
 
     except socket.error as e:
 
