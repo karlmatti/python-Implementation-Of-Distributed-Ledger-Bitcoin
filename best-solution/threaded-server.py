@@ -16,6 +16,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
         json_data = self.request.recv(1024).strip()
         data_list = json_data.decode().split('\n')
+
         request_method = data_list[0].split(' ')[0]
         request_path = data_list[0].split(' ')[1]
 
@@ -33,9 +34,16 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 request_path_list = request_path.split("?")
                 request_path_list.pop(0)
                 if '&' not in request_path_list[0]:
-                    requester_port = request_path_list[0].split('=')[1]
-                    # TODO: Kui küsija port on peers-PORT.json failist puudu,
-                    #  siis serveri ip+port lisada sinna
+                    request_port = request_path_list[0].split('=')[1]
+                    request_host = data_list[1].split(':')[1].strip()
+                    request_address = request_host + ':' + request_port
+                    with open('peers-' + sys.argv[1] + '.json', 'r') as f:
+                        peers = json.load(f)
+                    if request_address not in peers['peers']:
+                        peers['peers'].append(request_address)
+                        with open('peers-' + sys.argv[1] + '.json', 'w+') as f:
+                            json.dump(peers, f)
+
 
                 with open('peers-' + sys.argv[1] + '.json', 'r') as f:
                     json_data = json.load(f)
