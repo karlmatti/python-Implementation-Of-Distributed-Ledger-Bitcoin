@@ -21,11 +21,11 @@ class Block:
         return hashlib.sha256(unhashed_string.encode('utf-8')).hexdigest()
 
     def to_string(self):
-        return '{"Index": ' + str(self.index) + ',' + \
-               '"Previous Hash": "' + self.previous_hash + '",' + \
-               '"Timestamp": "' + self.timestamp + '",' + \
-               '"Data": ' + json.dumps(self.data, separators=(',', ':')) + ',' + \
-               '"Hash": "' + self.hash + \
+        return '{"index": ' + str(self.index) + ',' + \
+               '"previous hash": "' + self.previous_hash + '",' + \
+               '"timestamp": "' + self.timestamp + '",' + \
+               '"data": ' + json.dumps(self.data, separators=(',', ':')) + ',' + \
+               '"hash": "' + self.hash + \
                '"}'
 
     def to_json(self):
@@ -97,7 +97,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                         returned_blocks = []
 
                         for block in chain_json['chain']:
-                            if block['Hash'] == request_parameters['id']:
+                            if block['hash'] == request_parameters['id']:
                                 is_id_found = True
                                 returned_blocks.append(block)
                             elif is_id_found:
@@ -126,7 +126,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     returned_block = ""
 
                     for block in chain_json['chain']:
-                        if block['Hash'] == request_parameters['id']:
+                        if block['hash'] == request_parameters['id']:
                             returned_block = json.dumps(block)
 
                     json_length = len(returned_block)
@@ -165,7 +165,23 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             #  kus salvestame selle bloki endale (kontrollides bloki id)
             #  ja saadame edasi. Kui blokk on olemas, siis edasi ei saada.
             #  vastuseks on 1 või veateade: (näiteks {"errcode": ..., "errmsg": ...})
-            pass
+            if '/block' in request_path:
+                received_block = json.loads(data_list[-1])
+
+                with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
+                    current_blocks = json.load(f)
+                blockchain = Blockchain()
+                blockchain.chain = current_blocks
+                latest_block = blockchain.get_latest_block()
+
+                if latest_block['hash'] == received_block['previous hash']:
+                    # TODO lisa chaini, tagasta 1
+                    # TODO hakka neid edasi saatma
+                    pass
+                else:
+                    # TODO ära lisa, tagasta {"errcode": ..., "errmsg": ...}
+                    pass
+
 
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
