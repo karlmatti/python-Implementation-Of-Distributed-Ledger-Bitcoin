@@ -47,6 +47,14 @@ class Blockchain:
         new_block.hash = new_block.calculate_hash()
         self.chain.append(new_block)
 
+    def to_string(self):
+        returned_string = '{"chain":['
+        for block in self.chain:
+            returned_string += str(block).replace("\'", '"') + ","
+        returned_string = returned_string[:-1] + ']}'
+        print('returned string', returned_string)
+        return returned_string
+
 
 class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
     def __init__(self, request, client_address, server):
@@ -67,15 +75,16 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             if '/getblocks' in request_path:
                 request_path_list = request_path.split("?")
                 request_path_list.pop(0)
-                if '&' not in request_path_list[0]:
+                if '&' not in request_path_list[0]:  # /getblocks?port=6000
                     with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
                         chain_string = json.load(f)
                         chain_json = json.dumps(chain_string)
                         json_length = len(chain_json)
                         headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
+                        print("type(chain_json)", type(chain_json))
                         response = headers + chain_json
                         self.request.sendall(response.encode())
-                else:
+                else:  # /getblocks?port=6000&id=1b7382f10c8c0cb95327f96db02155e197659c9cd1c0c55b68d5264ae0292375
                     request_path_list = request_path_list[0].split('&')
                     request_parameters = {}
                     for parameter in request_path_list:
@@ -83,30 +92,47 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                         request_parameters[key] = value
 
                     with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
-                        chain_string = json.load(f)
-                        chain_json = json.dumps(chain_string)
+                        chain_json = json.load(f)
                         is_id_found = False
                         returned_blocks = []
+
                         for block in chain_json['chain']:
-                            if block['hash'] == request_parameters['id']:
+                            if block['Hash'] == request_parameters['id']:
                                 is_id_found = True
                                 returned_blocks.append(block)
                             elif is_id_found:
                                 returned_blocks.append(block)
-                        chain_returned_blocks = Blockchain
+
+                        chain_returned_blocks = Blockchain()
                         chain_returned_blocks.chain = returned_blocks
                         chain_returned_blocks = chain_returned_blocks.to_string()
-                        # TODO: to_string method needs to be implemented
+
                         json_length = len(chain_returned_blocks)
                         headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
                         response = headers + chain_returned_blocks
                         self.request.sendall(response.encode())
 
-            # TODO: Kui tehakse GET päring /getblocks/X,
-            #  siis tagastada blokid alates X(mis on id hash) blokist
+            elif '/getdata' in request_path:  # /getdata?port=6000&id=1b7382f10c8c0cb95327f96db02155e197659c9cd1c0c55b68d5264ae0292375
+                request_path_list = request_path.split("?")
+                request_path_list.pop(0)
+                request_path_list = request_path_list[0].split('&')
+                request_parameters = {}
+                for parameter in request_path_list:
+                    key, value = parameter.split('=')
+                    request_parameters[key] = value
 
-            # TODO: Kui tehakse GET päring /getdata/Y,
-            #  siis tagastada konkreetne blokk Y(mis on id hash)
+                with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
+                    chain_json = json.load(f)
+                    returned_block = ""
+
+                    for block in chain_json['chain']:
+                        if block['Hash'] == request_parameters['id']:
+                            returned_block = json.dumps(block)
+
+                    json_length = len(returned_block)
+                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
+                    response = headers + returned_block
+                    self.request.sendall(response.encode())
 
             elif '/getpeers' in request_path:
                 request_path_list = request_path.split("?")
@@ -273,7 +299,8 @@ if __name__ == "__main__":
 
     taltechCoin.add_block(block)
 
-    blocks_chain = '{"chain": [' + taltechCoin.chain[0].to_string() + ', ' + taltechCoin.get_latest_block().to_string() + ']}'
+    blocks_chain = '{"chain": [' + taltechCoin.chain[
+        0].to_string() + ', ' + taltechCoin.get_latest_block().to_string() + ']}'
 
     blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
     blocks.write(blocks_chain)
