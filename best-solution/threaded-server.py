@@ -19,13 +19,15 @@ class Block:
         unhashed_string = str(self.index) + self.previous_hash + \
                           self.timestamp + json.dumps(self.data, separators=(',', ':'))
         return hashlib.sha256(unhashed_string.encode('utf-8')).hexdigest()
+
     def to_string(self):
-        return '{"Index": '+str(self.index) +','+\
-                '"Previous Hash": "'+ self.previous_hash +'",'+\
-                '"Timestamp": "' + self.timestamp +'",'+\
-                '"Data": ' + json.dumps(self.data, separators=(',', ':')) +','+\
-                '"Hash": "' +self.previous_hash+\
-                '"}'
+        return '{"Index": ' + str(self.index) + ',' + \
+               '"Previous Hash": "' + self.previous_hash + '",' + \
+               '"Timestamp": "' + self.timestamp + '",' + \
+               '"Data": ' + json.dumps(self.data, separators=(',', ':')) + ',' + \
+               '"Hash": "' + self.hash + \
+               '"}'
+
     def to_json(self):
         return json.dumps(self.to_string(), separators=(',', ':'))
 
@@ -35,7 +37,7 @@ class Blockchain:
         self.chain = [self.create_genesis_block()]
 
     def create_genesis_block(self):
-        return Block(0, "01/01/2020", "Genesis block", "0")
+        return Block(0, "01/01/2020", "Genesis block")
 
     def get_latest_block(self):
         return self.chain[len(self.chain) - 1]
@@ -54,17 +56,51 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
         # print("%s:%s sent:" % (self.client_address[0], self.client_address[1]))
 
-        json_data = self.request.recv(1024).strip()
-        data_list = json_data.decode().split('\n')
+        chain_string = self.request.recv(1024).strip()
+        data_list = chain_string.decode().split('\n')
 
         request_method = data_list[0].split(' ')[0]
         request_path = data_list[0].split(' ')[1]
 
         if request_method == 'GET':
-            # TODO: Kui tehakse GET päring /getblocks,
-            #  siis tagastada kõik blokid
+
             if '/getblocks' in request_path:
-                request_path
+                request_path_list = request_path.split("?")
+                request_path_list.pop(0)
+                if '&' not in request_path_list[0]:
+                    with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
+                        chain_string = json.load(f)
+                        chain_json = json.dumps(chain_string)
+                        json_length = len(chain_json)
+                        headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
+                        response = headers + chain_json
+                        self.request.sendall(response.encode())
+                else:
+                    request_path_list = request_path_list[0].split('&')
+                    request_parameters = {}
+                    for parameter in request_path_list:
+                        key, value = parameter.split('=')
+                        request_parameters[key] = value
+
+                    with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
+                        chain_string = json.load(f)
+                        chain_json = json.dumps(chain_string)
+                        is_id_found = False
+                        returned_blocks = []
+                        for block in chain_json['chain']:
+                            if block['hash'] == request_parameters['id']:
+                                is_id_found = True
+                                returned_blocks.append(block)
+                            elif is_id_found:
+                                returned_blocks.append(block)
+                        chain_returned_blocks = Blockchain
+                        chain_returned_blocks.chain = returned_blocks
+                        chain_returned_blocks = chain_returned_blocks.to_string()
+                        # TODO: to_string method needs to be implemented
+                        json_length = len(chain_returned_blocks)
+                        headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
+                        response = headers + chain_returned_blocks
+                        self.request.sendall(response.encode())
 
             # TODO: Kui tehakse GET päring /getblocks/X,
             #  siis tagastada blokid alates X(mis on id hash) blokist
@@ -72,7 +108,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             # TODO: Kui tehakse GET päring /getdata/Y,
             #  siis tagastada konkreetne blokk Y(mis on id hash)
 
-            if '/getpeers' in request_path:
+            elif '/getpeers' in request_path:
                 request_path_list = request_path.split("?")
                 request_path_list.pop(0)
                 if '&' not in request_path_list[0]:
@@ -87,11 +123,11 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                             json.dump(peers, f)
 
                 with open('peers-' + sys.argv[1] + '.json', 'r') as f:
-                    json_data = json.load(f)
-                    app_json = json.dumps(json_data)
-                    len_json = len(app_json)
-                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % len_json
-                    response = headers + app_json
+                    chain_string = json.load(f)
+                    chain_json = json.dumps(chain_string)
+                    json_length = len(chain_json)
+                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
+                    response = headers + chain_json
                     self.request.sendall(response.encode())
         elif request_method == 'POST':
             # TODO: Tuleb realiseerida transaktsioonide laialisaatmine
@@ -109,7 +145,9 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
 
-def client_blocks(ip,port):
+
+"""
+def client_blocks(ip, port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         print("/getblocks request to " + ip + str(port))
@@ -144,6 +182,8 @@ def client_blocks(ip,port):
         pass
     finally:
         sock.close()
+"""
+
 
 def client_peers(ip, port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -215,8 +255,7 @@ if __name__ == "__main__":
     server_thread.start()
     # print("Server loop running in thread:", server_thread.name)
 
-
-    #print(str(taltechCoin.get_latest_block().to_string()))
+    # print(str(taltechCoin.get_latest_block().to_string()))
     # Reads default peers from peers-default.json file
     with open('peers-default.json', 'r') as f:
         data = json.load(f)
@@ -231,13 +270,14 @@ if __name__ == "__main__":
                   {"from": "mult",
                    "to": "sulle",
                    "amount": 2000000})
-    taltechCoin.add_block(block)
-    blocks_chain = '{"chain": [' + block.to_string() + ']}'
-    blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
 
+    taltechCoin.add_block(block)
+
+    blocks_chain = '{"chain": [' + taltechCoin.chain[0].to_string() + ', ' + taltechCoin.get_latest_block().to_string() + ']}'
+
+    blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
     blocks.write(blocks_chain)
     blocks.close()
-
 
     prev = time()
     while True:
@@ -248,21 +288,11 @@ if __name__ == "__main__":
                 for peer in json_data['peers']:
                     ip, port = peer.split(':')
                     client_peers(ip, int(port))
-            with open('blocks-' + sys.argv[1] + '.json', 'r') as blocks:
-                json_data = json.load(blocks)
-                for block in json_data['chain']:
-                    # TODO: do send all blocks method
-                    # TODO: do send blocks method since X block
-                    # TODO: do send transaction data
-                    client_blocks(ip, int(port))
-            # print("10 sec")
+
             prev = now
         else:
             pass
             # runs
-
-
-
 
             # taltechCoin = Blockchain()
             # block = Block('1', "01/02/2020",
