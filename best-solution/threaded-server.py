@@ -43,17 +43,22 @@ class Blockchain:
         return self.chain[len(self.chain) - 1]
 
     def add_block(self, new_block):
-        new_block.previous_hash = self.get_latest_block().hash
+        # new_block.previous_hash = self.get_latest_block().hash
         new_block.hash = new_block.calculate_hash()
         self.chain.append(new_block)
 
     def to_string(self):
         returned_string = '{"chain":['
+
         for block in self.chain:
-            returned_string += str(block).replace("\'", '"') + ","
+            print("block type:", type(block))
+            returned_string += block + ","
         returned_string = returned_string[:-1] + ']}'
-        print('returned string', returned_string)
         return returned_string
+
+    def to_json(self):
+        return json.dumps(self.to_string(), separators=(',', ':'))
+
 
 
 class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
@@ -81,7 +86,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                         chain_json = json.dumps(chain_string)
                         json_length = len(chain_json)
                         headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
-                        print("type(chain_json)", type(chain_json))
+
                         response = headers + chain_json
                         self.request.sendall(response.encode())
                 else:  # /getblocks?port=6000&id=1b7382f10c8c0cb95327f96db02155e197659c9cd1c0c55b68d5264ae0292375
@@ -171,16 +176,34 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
                     current_blocks = json.load(f)
                 blockchain = Blockchain()
-                blockchain.chain = current_blocks
+                blockchain.chain = current_blocks['chain']
+
                 latest_block = blockchain.get_latest_block()
 
                 if latest_block['hash'] == received_block['previous hash']:
-                    # TODO lisa chaini, tagasta 1
+
+                    new_block = Block(received_block['index'], received_block['timestamp'],
+                                      received_block['data'], received_block['previous hash'])
+
+                    blockchain.add_block(new_block)
+                    blockchain.to_string() # TODO VISKAB ERRORIT SIIN, AGA ALGUSES EI VISKA!!!!!!!!!!!
+                    """
+                    blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
+                    blocks.write(blockchain.to_string())
+                    blocks.close()
+                    """
+
+                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: plain/text\r\n\r\n' % 1
+                    response = headers + "1"
+                    self.request.sendall(response.encode())
                     # TODO hakka neid edasi saatma
-                    pass
+
                 else:
+                    print("tahmaeldur")
                     # TODO ära lisa, tagasta {"errcode": ..., "errmsg": ...}
                     pass
+
+
 
 
 
@@ -315,8 +338,12 @@ if __name__ == "__main__":
 
     taltechCoin.add_block(block)
 
+    blocks_chain = taltechCoin.to_string()
+    """
     blocks_chain = '{"chain": [' + taltechCoin.chain[
         0].to_string() + ', ' + taltechCoin.get_latest_block().to_string() + ']}'
+    """
+
 
     blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
     blocks.write(blocks_chain)
@@ -325,7 +352,7 @@ if __name__ == "__main__":
     prev = time()
     while True:
         now = time()
-        if now - prev > 10:
+        if now - prev > 60:
             with open('peers-' + sys.argv[1] + '.json', 'r') as f:
                 json_data = json.load(f)
                 for peer in json_data['peers']:
