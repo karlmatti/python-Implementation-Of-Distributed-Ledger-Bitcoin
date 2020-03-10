@@ -28,9 +28,6 @@ class Block:
                '"hash": "' + self.hash + \
                '"}'
 
-    def to_json(self):
-        return json.dumps(self.to_string(), separators=(',', ':'))
-
 
 class Blockchain:
     def __init__(self):
@@ -51,13 +48,56 @@ class Blockchain:
         returned_string = '{"chain":['
 
         for block in self.chain:
-            print("block type:", type(block))
-            returned_string += block + ","
+            returned_string += block.to_string() + ","
         returned_string = returned_string[:-1] + ']}'
         return returned_string
 
     def to_json(self):
         return json.dumps(self.to_string(), separators=(',', ':'))
+
+
+class Transaction:
+    def __init__(self, index, timestamp, data):
+        self.index = index
+        self.timestamp = timestamp
+        self.data = data
+        self.hash = self.calculate_hash()
+
+    def calculate_hash(self):
+        unhashed_string = str(self.index) + \
+                          self.timestamp + json.dumps(self.data, separators=(',', ':'))
+        return hashlib.sha256(unhashed_string.encode('utf-8')).hexdigest()
+
+    def to_string(self):
+        return '{"index": ' + str(self.index) + ',' + \
+               '"timestamp": "' + self.timestamp + '",' + \
+               '"data": ' + json.dumps(self.data, separators=(',', ':')) + ',' + \
+               '"hash": "' + self.hash + \
+               '"}'
+
+
+class Transactions:
+    def __init__(self, list):
+        self.list = list
+
+    def add_transaction(self, transaction):
+        self.list.append(transaction)
+
+    def is_transaction_in_list(self, new_transaction):
+        for transaction in self.list:
+            if transaction == new_transaction:
+                return True
+        return False
+
+    def to_string(self):
+        returned_string = '{"transactions":['
+        if self.list:
+            for transaction in self.list:
+                returned_string += transaction.to_string() + ","
+            returned_string = returned_string[:-1] + ']}'
+            return returned_string
+        else:
+            return '{"transactions":[]}'
 
 
 
@@ -166,44 +206,54 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             #  request_path = /inv, kus vastuseks on 1 või
             #  veateade: (näiteks {"errcode": ..., "errmsg": ...})
 
-            # TODO: Uusi blokke saame vastu request_path = /block pealt,
-            #  kus salvestame selle bloki endale (kontrollides bloki id)
-            #  ja saadame edasi. Kui blokk on olemas, siis edasi ei saada.
-            #  vastuseks on 1 või veateade: (näiteks {"errcode": ..., "errmsg": ...})
-            if '/block' in request_path:
+            if '/block' in request_path: # /block
                 received_block = json.loads(data_list[-1])
 
                 with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
                     current_blocks = json.load(f)
                 blockchain = Blockchain()
-                blockchain.chain = current_blocks['chain']
+                for current_block in current_blocks['chain']:
+                    block = Block(current_block['index'], current_block['timestamp'],
+                                  current_block['data'], current_block['previous hash'])
+                    blockchain.add_block(block)
 
                 latest_block = blockchain.get_latest_block()
 
-                if latest_block['hash'] == received_block['previous hash']:
+                if latest_block.hash == received_block['previous hash']:
 
                     new_block = Block(received_block['index'], received_block['timestamp'],
                                       received_block['data'], received_block['previous hash'])
 
                     blockchain.add_block(new_block)
-                    blockchain.to_string() # TODO VISKAB ERRORIT SIIN, AGA ALGUSES EI VISKA!!!!!!!!!!!
-                    """
+                    blockchain.to_string()
+
                     blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
                     blocks.write(blockchain.to_string())
                     blocks.close()
-                    """
 
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: plain/text\r\n\r\n' % 1
                     response = headers + "1"
                     self.request.sendall(response.encode())
-                    # TODO hakka neid edasi saatma
+                    # TODO hakka neid edasi saatma (client_blocks())
 
                 else:
-                    print("tahmaeldur")
-                    # TODO ära lisa, tagasta {"errcode": ..., "errmsg": ...}
+                    error_message = json.dumps({"errcode": 400, "errmsg": "Block already exists"})
+                    json_length = len(error_message)
+                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
+                    response = headers + error_message
+                    self.request.sendall(response.encode())
+            if '/inv' in request_path:
+                received_transaction = json.loads(data_list[-1])
+                with open('transactions-' + sys.argv[1] + '.json', 'r') as f:
+                    current_transactions = json.load(f)
+                transactions = Transactions(current_transactions['transactions'])
+                if not transactions.is_transaction_in_list(received_transaction):
+                    transactions.add_transaction(received_transaction)
+                    # TODO lisa transactions faili
+                    # TODO saada teistele transactioneid edasi client_blocks(received_transaction)
+                else:
+                    # TODO tagasta errmsg transaction olemas
                     pass
-
-
 
 
 
@@ -339,16 +389,16 @@ if __name__ == "__main__":
     taltechCoin.add_block(block)
 
     blocks_chain = taltechCoin.to_string()
-    """
-    blocks_chain = '{"chain": [' + taltechCoin.chain[
-        0].to_string() + ', ' + taltechCoin.get_latest_block().to_string() + ']}'
-    """
-
 
     blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
     blocks.write(blocks_chain)
     blocks.close()
 
+    my_transactions = Transactions([])
+
+    transactions = open('transactions-' + sys.argv[1] + '.json', "w+")
+    transactions.write(my_transactions.to_string())
+    transactions.close()
     prev = time()
     while True:
         now = time()
