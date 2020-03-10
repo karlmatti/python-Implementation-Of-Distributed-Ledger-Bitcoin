@@ -87,7 +87,6 @@ class Transactions:
 
     def is_transaction_in_list(self, new_transaction):
         for transaction in self.list:
-            print("type new transaction", type(new_transaction))
             if transaction.hash == new_transaction.hash:
                 return True
         return False
@@ -232,7 +231,12 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: plain/text\r\n\r\n' % 1
                     response = headers + "1"
                     self.request.sendall(response.encode())
-                    # TODO hakka neid edasi saatma (client_blocks())
+                    #  hakka neid edasi saatma
+                    with open('peers-' + sys.argv[1] + '.json', 'r') as f:
+                        json_data = json.load(f)
+                        for peer in json_data['peers']:
+                            ip, port = peer.split(':')
+                            client_blocks(ip, int(port), 'block', new_block)
 
                 else:
                     error_message = json.dumps({"errcode": 400, "errmsg": "Block already exists"})
@@ -240,6 +244,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
                     response = headers + error_message
                     self.request.sendall(response.encode())
+
             if '/inv' in request_path:
                 received_transaction = json.loads(data_list[-1])
                 received_transaction = Transaction(received_transaction['index'],
@@ -273,22 +278,39 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: plain/text\r\n\r\n' % 1
                     response = headers + "1"
                     self.request.sendall(response.encode())
-                    # TODO saada teistele transactioneid edasi client_blocks(received_transaction)
-
+                    # saada teistele transactioneid edasi client_blocks(received_transaction)
+                    with open('peers-' + sys.argv[1] + '.json', 'r') as f:
+                        json_data = json.load(f)
+                        for peer in json_data['peers']:
+                            ip, port = peer.split(':')
+                            client_blocks(ip, int(port), 'transaction', received_transaction)
 
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
 
 
-"""
-def client_blocks(ip, port):
+
+def client_blocks(ip, port, packet_type, packet):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        print("/getblocks request to " + ip + str(port))
+        sock.connect((ip, port))
+        if packet_type == 'transaction':
+            request = "POST /inv?port=%s HTTP/1.1\r\nHost: %s\r\nUser-agent: transaction-santa\r\n\r\n" % (str(PORT), ip)
+            request += packet.to_string()
+            print("transaction-santa request", request)
+            sock.send(request.encode())
+        elif packet_type == 'block':
+            request = "POST /block?port=%s HTTP/1.1\r\nHost: %s\r\nUser-agent: block-santa\r\n\r\n" % (
+            str(PORT), ip)
+            request += packet.to_string()
+            print("block-santa request", request)
+            sock.send(request.encode())
+        """
+        print("/getpeers request to " + ip + str(port))
         sock.connect((ip, port))
 
-        request = "GET /getblocks?port=%s HTTP/1.1\r\nHost: %s\r\nUser-agent: threaded-server\r\n" % (str(PORT), ip)
+        request = "GET /getpeers?port=%s HTTP/1.1\r\nHost: %s\r\nUser-agent: threaded-server\r\n" % (str(PORT), ip)
         sock.send(request.encode())
         print(request)
         # receive some data
@@ -297,27 +319,44 @@ def client_blocks(ip, port):
         # if len(response) < 1:
 
         http_response = repr(response)
+        http_response_len = len(http_response)
         # display the response
         # print("[RECV] - length: %d" % http_response_len)
 
         response_body = json.loads(http_response.split("\\r\\n")[-1][0:-1])
-        blocks = response_body['blocks']
+        peers = response_body['peers']
 
-        with open('blocks-' + sys.argv[1] + '.json', 'r+') as f:  # loeme peers-PORT.json failist serverid sisse
+        with open('peers-' + sys.argv[1] + '.json', 'r+') as f:  # loeme peers-PORT.json failist serverid sisse
             response_body = json.load(f)
-        blocks = set(blocks + response_body['blocks'])
-        response_body['blocks'] = list(blocks)
+        peers = set(peers + response_body['peers'])
+        response_body['peers'] = list(peers)
 
-        print("blocks:", list(blocks))
+        print("Peers:", list(peers))
 
-        with open('blocks-' + sys.argv[1] + '.json', 'w+') as f:  # kirjutame peers-PORT.json faili uuendatud andmed
+        with open('peers-' + sys.argv[1] + '.json', 'w+') as f:  # kirjutame peers-PORT.json faili uuendatud andmed
             json.dump(response_body, f)
+        """
+
 
     except socket.error as e:
-        pass
+
+        server_address = ip + ':' + str(port)
+        with open('peers-' + sys.argv[1] + '.json', 'r+') as f:  # loeme peers-PORT.json failist serverid sisse
+            response_body = json.load(f)
+
+        peers = list(response_body['peers'])
+        deleted_peer_index = peers.index(server_address)
+        peers.pop(deleted_peer_index)  # kustutame serveri nimekirjast
+        response_body['peers'] = peers
+
+        with open('peers-' + sys.argv[1] + '.json', 'w+') as f:  # kirjutame peers-PORT.json faili uuendatud andmed
+            json.dump(response_body, f)
+
+        print("Error404 - cannot find " + server_address + ", deleted from list.")
+
     finally:
         sock.close()
-"""
+
 
 
 def client_peers(ip, port):
