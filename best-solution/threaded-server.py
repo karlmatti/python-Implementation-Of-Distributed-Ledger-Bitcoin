@@ -81,11 +81,14 @@ class Transactions:
         self.list = list
 
     def add_transaction(self, transaction):
+        if type(transaction) != type(Transaction("1", "1", "1")):
+            print("nahuj sa dictionary lisad siia")
         self.list.append(transaction)
 
     def is_transaction_in_list(self, new_transaction):
         for transaction in self.list:
-            if transaction == new_transaction:
+            print("type new transaction", type(new_transaction))
+            if transaction.hash == new_transaction.hash:
                 return True
         return False
 
@@ -98,7 +101,6 @@ class Transactions:
             return returned_string
         else:
             return '{"transactions":[]}'
-
 
 
 class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
@@ -201,12 +203,8 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     response = headers + chain_json
                     self.request.sendall(response.encode())
         elif request_method == 'POST':
-            # TODO: Tuleb realiseerida transaktsioonide laialisaatmine
-            #  (a la Jaan kannab 2018-02-15 Antsule 0.0001 bitcoini)
-            #  request_path = /inv, kus vastuseks on 1 või
-            #  veateade: (näiteks {"errcode": ..., "errmsg": ...})
 
-            if '/block' in request_path: # /block
+            if '/block' in request_path:  # /block
                 received_block = json.loads(data_list[-1])
 
                 with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
@@ -244,16 +242,38 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     self.request.sendall(response.encode())
             if '/inv' in request_path:
                 received_transaction = json.loads(data_list[-1])
+                received_transaction = Transaction(received_transaction['index'],
+                                                   received_transaction['timestamp'],
+                                                   received_transaction['data'])
                 with open('transactions-' + sys.argv[1] + '.json', 'r') as f:
                     current_transactions = json.load(f)
-                transactions = Transactions(current_transactions['transactions'])
-                if not transactions.is_transaction_in_list(received_transaction):
-                    transactions.add_transaction(received_transaction)
-                    # TODO lisa transactions faili
-                    # TODO saada teistele transactioneid edasi client_blocks(received_transaction)
+                transactions = Transactions([])
+
+                if current_transactions['transactions']:
+                    for current_transaction in current_transactions['transactions']:
+                        transaction = Transaction(current_transaction['index'],
+                                                  current_transaction['timestamp'],
+                                                  current_transaction['data'])
+                        transactions.add_transaction(transaction)
+
+                if transactions.is_transaction_in_list(received_transaction):
+                    error_message = json.dumps({"errcode": 400, "errmsg": "Transaction already exists"})
+                    json_length = len(error_message)
+                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
+                    response = headers + error_message
+                    self.request.sendall(response.encode())
                 else:
-                    # TODO tagasta errmsg transaction olemas
-                    pass
+
+                    transactions.add_transaction(received_transaction)
+
+                    transactions_file = open('transactions-' + sys.argv[1] + '.json', "w+")
+                    transactions_file.write(transactions.to_string())
+                    transactions_file.close()
+
+                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: plain/text\r\n\r\n' % 1
+                    response = headers + "1"
+                    self.request.sendall(response.encode())
+                    # TODO saada teistele transactioneid edasi client_blocks(received_transaction)
 
 
 
