@@ -81,8 +81,6 @@ class Transactions:
         self.list = list
 
     def add_transaction(self, transaction):
-        if type(transaction) != type(Transaction("1", "1", "1")):
-            print("nahuj sa dictionary lisad siia")
         self.list.append(transaction)
 
     def is_transaction_in_list(self, new_transaction):
