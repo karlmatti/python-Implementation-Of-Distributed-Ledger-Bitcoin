@@ -1,4 +1,4 @@
-# P2P bitcoin app
+# P2P custom bitcoin app
 
 ## How to run?
 run the server.py script with a port argument
@@ -6,7 +6,7 @@ For example:
 In windows: server.py 6000
 In mac: python server.py 6000
 
-## Protocol: Bitcoin
+## Protocol: HTTP
 ## Servers communicate each other via TCP sending HTTP requests
 
 ## How it works?
