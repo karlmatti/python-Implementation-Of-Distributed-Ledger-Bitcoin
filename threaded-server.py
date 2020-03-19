@@ -17,14 +17,14 @@ class Block:
 
     def calculate_hash(self):
         unhashed_string = str(self.index) + self.previous_hash + \
-                          self.timestamp + json.dumps(self.data, separators=(',', ':'))
+                          self.timestamp + str(self.data)
         return hashlib.sha256(unhashed_string.encode('utf-8')).hexdigest()
 
     def to_string(self):
         return '{"index": ' + str(self.index) + ',' + \
                '"previous hash": "' + self.previous_hash + '",' + \
                '"timestamp": "' + self.timestamp + '",' + \
-               '"data": ' + json.dumps(self.data, separators=(',', ':')) + ',' + \
+               '"data": ' + str(self.data) + ',' + \
                '"hash": "' + self.hash + \
                '"}'
 
@@ -34,14 +34,15 @@ class Blockchain:
         self.chain = [self.create_genesis_block()]
 
     def create_genesis_block(self):
-        return Block(0, "01/01/2020", "Genesis block")
+        return Block(0, "01/01/2020",
+                     1)
 
     def get_latest_block(self):
         return self.chain[len(self.chain) - 1]
 
     def add_block(self, new_block):
         # new_block.previous_hash = self.get_latest_block().hash
-        new_block.hash = new_block.calculate_hash()
+        # new_block.hash = new_block.calculate_hash()
         self.chain.append(new_block)
 
     def to_string(self):
@@ -114,6 +115,17 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         request_method = data_list[0].split(' ')[0]
         request_path = data_list[0].split(' ')[1]
 
+        """
+        headers, body = chain_string.decode().split('\r\n\r\n')
+        headers = headers.split('\r\n')
+        print("headers.split('\r\n')")
+        print(headers.split('\r\n'))
+        print("body")
+        print(body)
+        request_method = headers.split(' ')[0]
+        request_path = headers.split(' ')[1]
+        """
+
         if request_method == 'GET':
 
             if '/getblocks' in request_path:
@@ -143,17 +155,25 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                         for block in chain_json['chain']:
                             if block['hash'] == request_parameters['id']:
                                 is_id_found = True
-                                returned_blocks.append(block)
+
+                                returned_blocks.append(Block(block['index'],
+                                                             block['timestamp'],
+                                                             block['data'],
+                                                             block['previous hash']
+                                                             ))
                             elif is_id_found:
-                                returned_blocks.append(block)
+                                returned_blocks.append(Block(block['index'],
+                                                             block['timestamp'],
+                                                             block['data'],
+                                                             block['previous hash']))
 
                         chain_returned_blocks = Blockchain()
                         chain_returned_blocks.chain = returned_blocks
-                        chain_returned_blocks = chain_returned_blocks.to_string()
+                        returned_blocks_string = chain_returned_blocks.to_string()
 
-                        json_length = len(chain_returned_blocks)
+                        json_length = len(returned_blocks_string)
                         headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
-                        response = headers + chain_returned_blocks
+                        response = headers + returned_blocks_string
                         self.request.sendall(response.encode())
 
             elif '/getdata' in request_path:  # /getdata?port=6000&id=1b7382f10c8c0cb95327f96db02155e197659c9cd1c0c55b68d5264ae0292375
@@ -200,22 +220,41 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     response = headers + chain_json
                     self.request.sendall(response.encode())
         elif request_method == 'POST':
-
+            response_list = chain_string.decode().split('\r\n\r\n')
+            headers, body = response_list[0], response_list[1]
+            headers = headers.split('\r\n')
+            print("headers.split()")
+            print(headers)
+            print("body")
+            print(body)
+            request_path = headers[0].split(' ')[1]
+            print("request_path")
+            print(request_path)
             if '/block' in request_path:  # /block
-                received_block = json.loads(data_list[-1])
+                received_block = json.loads(body)
 
                 with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
                     current_blocks = json.load(f)
+
                 blockchain = Blockchain()
-                for current_block in current_blocks['chain']:
+                for current_block in current_blocks['chain'][1:]:
                     block = Block(current_block['index'], current_block['timestamp'],
                                   current_block['data'], current_block['previous hash'])
+                    print("saved block")
+                    print(block.to_string())
                     blockchain.add_block(block)
 
                 latest_block = blockchain.get_latest_block()
-
+                print("latest block")
+                print(latest_block.index)
+                print(latest_block.hash)
+                print(latest_block.previous_hash)
+                print(latest_block.timestamp)
+                print(latest_block.data)
+                print("current_hash")
+                print(received_block['previous hash'])
                 if latest_block.hash == received_block['previous hash']:
-
+                    print("WILL ADD NEW BLOCK !!!!!!!!!!!!!!!!!!!!!!!!!")
                     new_block = Block(received_block['index'], received_block['timestamp'],
                                       received_block['data'], received_block['previous hash'])
 
@@ -237,6 +276,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                             client_blocks(ip, int(port), 'block', new_block)
 
                 else:
+                    print("NOT ADDING NEW BLOCK !!!!!!!!!!!!!!!!!!!!!!!!!")
                     error_message = json.dumps({"errcode": 400, "errmsg": "Block already exists"})
                     json_length = len(error_message)
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
@@ -244,7 +284,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     self.request.sendall(response.encode())
 
             if '/inv' in request_path:
-                received_transaction = json.loads(data_list[-1])
+                received_transaction = json.loads(body)
                 received_transaction = Transaction(received_transaction['index'],
                                                    received_transaction['timestamp'],
                                                    received_transaction['data'])
@@ -288,52 +328,21 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     pass
 
 
-
 def client_blocks(ip, port, packet_type, packet):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         sock.connect((ip, port))
         if packet_type == 'transaction':
-            request = "POST /inv?port=%s HTTP/1.1\r\nHost: %s\r\nUser-agent: transaction-santa\r\n\r\n" % (str(PORT), ip)
+            request = "POST /inv HTTP/1.1\r\nHost: %s\r\nUser-agent: transaction-santa\r\n\r\n" % ip
             request += packet.to_string()
             print("transaction-santa request", request)
             sock.send(request.encode())
         elif packet_type == 'block':
-            request = "POST /block?port=%s HTTP/1.1\r\nHost: %s\r\nUser-agent: block-santa\r\n\r\n" % (
-            str(PORT), ip)
+            request = "POST /block HTTP/1.1\r\nHost: %s\r\nUser-agent: block-santa\r\n\r\n" % ip
             request += packet.to_string()
             print("block-santa request", request)
             sock.send(request.encode())
-        """
-        print("/getpeers request to " + ip + str(port))
-        sock.connect((ip, port))
 
-        request = "GET /getpeers?port=%s HTTP/1.1\r\nHost: %s\r\nUser-agent: threaded-server\r\n" % (str(PORT), ip)
-        sock.send(request.encode())
-        print(request)
-        # receive some data
-
-        response = sock.recv(4096)
-        # if len(response) < 1:
-
-        http_response = repr(response)
-        http_response_len = len(http_response)
-        # display the response
-        # print("[RECV] - length: %d" % http_response_len)
-
-        response_body = json.loads(http_response.split("\\r\\n")[-1][0:-1])
-        peers = response_body['peers']
-
-        with open('peers-' + sys.argv[1] + '.json', 'r+') as f:  # loeme peers-PORT.json failist serverid sisse
-            response_body = json.load(f)
-        peers = set(peers + response_body['peers'])
-        response_body['peers'] = list(peers)
-
-        print("Peers:", list(peers))
-
-        with open('peers-' + sys.argv[1] + '.json', 'w+') as f:  # kirjutame peers-PORT.json faili uuendatud andmed
-            json.dump(response_body, f)
-        """
 
 
     except socket.error as e:
@@ -354,7 +363,6 @@ def client_blocks(ip, port, packet_type, packet):
 
     finally:
         sock.close()
-
 
 
 def client_peers(ip, port):
@@ -438,15 +446,13 @@ if __name__ == "__main__":
     f.close()
     # Creating data for block
     taltechCoin = Blockchain()
-    block = Block("1", "01/02/2020",
-                  {"from": "mult",
-                   "to": "sulle",
-                   "amount": 2000000})
+
+    block = Block("1", "01/02/2020", 1)
 
     taltechCoin.add_block(block)
 
     blocks_chain = taltechCoin.to_string()
-
+    print(taltechCoin.get_latest_block().hash)
     blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
     blocks.write(blocks_chain)
     blocks.close()
@@ -456,6 +462,7 @@ if __name__ == "__main__":
     transactions = open('transactions-' + sys.argv[1] + '.json', "w+")
     transactions.write(my_transactions.to_string())
     transactions.close()
+
     prev = time()
     while True:
         now = time()
@@ -470,11 +477,3 @@ if __name__ == "__main__":
         else:
             pass
             # runs
-
-            # taltechCoin = Blockchain()
-            # block = Block('1', "01/02/2020",
-            #               {"from": "mult",
-            #                "to": "sulle",
-            #                "amount": 2000000})
-            # taltechCoin.add_block(block)
-            # print(str(taltechCoin.get_latest_block().to_string()))
