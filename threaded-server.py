@@ -109,43 +109,25 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
         # print("%s:%s sent:" % (self.client_address[0], self.client_address[1]))
 
+        global host
         chain_string = self.request.recv(1024).strip()
         data_list = chain_string.decode().split('\n')
 
         request_method = data_list[0].split(' ')[0]
         request_path = data_list[0].split(' ')[1]
 
-        """
-        headers, body = chain_string.decode().split('\r\n\r\n')
-        headers = headers.split('\r\n')
-        print("headers.split('\r\n')")
-        print(headers.split('\r\n'))
-        print("body")
-        print(body)
-        request_method = headers.split(' ')[0]
-        request_path = headers.split(' ')[1]
-        """
-
         if request_method == 'GET':
 
             if '/getblocks' in request_path:
-                request_path_list = request_path.split("?")
-                request_path_list.pop(0)
-                if '&' not in request_path_list[0]:  # /getblocks?port=6000
-                    with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
-                        chain_string = json.load(f)
-                        chain_json = json.dumps(chain_string)
-                        json_length = len(chain_json)
-                        headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
 
-                        response = headers + chain_json
-                        self.request.sendall(response.encode())
-                else:  # /getblocks?port=6000&id=1b7382f10c8c0cb95327f96db02155e197659c9cd1c0c55b68d5264ae0292375
-                    request_path_list = request_path_list[0].split('&')
+                if "?" in request_path:  # /getblocks?id=1b7382f10c8c0cb95327f96db02155e197659c9cd1c0c55b68d5264ae0292375
+
                     request_parameters = {}
-                    for parameter in request_path_list:
-                        key, value = parameter.split('=')
-                        request_parameters[key] = value
+                    key, value = request_path.split('=')
+                    key = key.split("?")[1]
+                    print("key", key)
+                    print("value", value)
+                    request_parameters[key] = value
 
                     with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
                         chain_json = json.load(f)
@@ -176,14 +158,30 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                         response = headers + returned_blocks_string
                         self.request.sendall(response.encode())
 
-            elif '/getdata' in request_path:  # /getdata?port=6000&id=1b7382f10c8c0cb95327f96db02155e197659c9cd1c0c55b68d5264ae0292375
+                else:  # /getblocks
+                    with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
+                        chain_string = json.load(f)
+                        chain_json = json.dumps(chain_string)
+                        json_length = len(chain_json)
+                        headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
+
+                        response = headers + chain_json
+                        self.request.sendall(response.encode())
+
+                    pass
                 request_path_list = request_path.split("?")
                 request_path_list.pop(0)
-                request_path_list = request_path_list[0].split('&')
+
+
+
+            elif '/getdata' in request_path:  # /getdata?id=1b7382f10c8c0cb95327f96db02155e197659c9cd1c0c55b68d5264ae0292375
+                parameter = request_path.split("?")
+                parameter.pop(0)
+
                 request_parameters = {}
-                for parameter in request_path_list:
-                    key, value = parameter.split('=')
-                    request_parameters[key] = value
+
+                key, value = parameter.split('=')
+                request_parameters[key] = value
 
                 with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
                     chain_json = json.load(f)
@@ -199,18 +197,19 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     self.request.sendall(response.encode())
 
             elif '/getpeers' in request_path:
-                request_path_list = request_path.split("?")
-                request_path_list.pop(0)
-                if '&' not in request_path_list[0]:
-                    request_port = request_path_list[0].split('=')[1]
-                    request_host = data_list[1].split(':')[1].strip()
-                    request_address = request_host + ':' + request_port
-                    with open('peers-' + sys.argv[1] + '.json', 'r') as f:
-                        peers = json.load(f)
-                    if request_address not in peers['peers']:
-                        peers['peers'].append(request_address)
-                        with open('peers-' + sys.argv[1] + '.json', 'w+') as f:
-                            json.dump(peers, f)
+                for row in data_list:
+                    if "Host" in row:
+                        request_address = row.replace("\r", "")
+                        request_address = request_address.split(" ")[1]
+
+                        with open('peers-' + sys.argv[1] + '.json', 'r') as f:
+                            peers = json.load(f)
+                        print(request_address)
+                        print('request_address')
+                        if request_address not in peers['peers']:
+                            peers['peers'].append(request_address)
+                            with open('peers-' + sys.argv[1] + '.json', 'w+') as f:
+                                json.dump(peers, f)
 
                 with open('peers-' + sys.argv[1] + '.json', 'r') as f:
                     chain_string = json.load(f)
@@ -219,6 +218,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
                     response = headers + chain_json
                     self.request.sendall(response.encode())
+
         elif request_method == 'POST':
             response_list = chain_string.decode().split('\r\n\r\n')
             headers, body = response_list[0], response_list[1]
@@ -330,15 +330,16 @@ class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 def client_blocks(ip, port, packet_type, packet):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
     try:
         sock.connect((ip, port))
         if packet_type == 'transaction':
-            request = "POST /inv HTTP/1.1\r\nHost: %s\r\nUser-agent: transaction-santa\r\n\r\n" % ip
+            request = "POST /inv HTTP/1.1\r\nHost: %s:%s\r\nUser-agent: transaction-santa\r\n\r\n" % (ip, port)
             request += packet.to_string()
             print("transaction-santa request", request)
             sock.send(request.encode())
         elif packet_type == 'block':
-            request = "POST /block HTTP/1.1\r\nHost: %s\r\nUser-agent: block-santa\r\n\r\n" % ip
+            request = "POST /block HTTP/1.1\r\nHost: %s:%s\r\nUser-agent: block-santa\r\n\r\n" % (ip, port)
             request += packet.to_string()
             print("block-santa request", request)
             sock.send(request.encode())
@@ -352,6 +353,7 @@ def client_blocks(ip, port, packet_type, packet):
             response_body = json.load(f)
 
         peers = list(response_body['peers'])
+
         deleted_peer_index = peers.index(server_address)
         peers.pop(deleted_peer_index)  # kustutame serveri nimekirjast
         response_body['peers'] = peers
@@ -367,22 +369,22 @@ def client_blocks(ip, port, packet_type, packet):
 
 def client_peers(ip, port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
     try:
-        print("/getpeers request to " + ip + str(port))
+        print("/getpeers request to " + ip + ':' + str(port))
         sock.connect((ip, port))
 
-        request = "GET /getpeers?port=%s HTTP/1.1\r\nHost: %s\r\nUser-agent: threaded-server\r\n" % (str(PORT), ip)
+        request = "GET /getpeers HTTP/1.1\r\nHost: %s:%s\r\nUser-agent: threaded-server\r\n" % (ip, str(PORT))
+
         sock.send(request.encode())
-        print(request)
+
         # receive some data
 
         response = sock.recv(4096)
-        # if len(response) < 1:
 
         http_response = repr(response)
-        http_response_len = len(http_response)
-        # display the response
-        # print("[RECV] - length: %d" % http_response_len)
+        print('http_response')
+        print(http_response)
 
         response_body = json.loads(http_response.split("\\r\\n")[-1][0:-1])
         peers = response_body['peers']
@@ -390,6 +392,8 @@ def client_peers(ip, port):
         with open('peers-' + sys.argv[1] + '.json', 'r+') as f:  # loeme peers-PORT.json failist serverid sisse
             response_body = json.load(f)
         peers = set(peers + response_body['peers'])
+        print('peers')
+        print(peers)
         response_body['peers'] = list(peers)
 
         print("Peers:", list(peers))
@@ -466,9 +470,11 @@ if __name__ == "__main__":
     prev = time()
     while True:
         now = time()
-        if now - prev > 60:
+        if now - prev > 5:
             with open('peers-' + sys.argv[1] + '.json', 'r') as f:
                 json_data = json.load(f)
+                print("json_data")
+                print(json_data)
                 for peer in json_data['peers']:
                     ip, port = peer.split(':')
                     client_peers(ip, int(port))
