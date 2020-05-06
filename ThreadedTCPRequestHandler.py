@@ -6,7 +6,7 @@ from Block import Block
 from Blockchain import Blockchain
 from Transaction import Transaction
 from Transactions import Transactions
-from client_blocks import client_blocks
+from client import client_blocks
 
 
 class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
@@ -23,7 +23,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
         request_method = data_list[0].split(' ')[0]
         request_path = data_list[0].split(' ')[1]
-
+        #print("Request path %s" % data_list)
         if request_method == 'GET':
 
             if '/getblocks' in request_path:
@@ -33,8 +33,8 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     request_parameters = {}
                     key, value = request_path.split('=')
                     key = key.split("?")[1]
-                    print("key", key)
-                    print("value", value)
+                    # print("key", key)
+                    # print("value", value)
                     request_parameters[key] = value
 
                     with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
@@ -88,7 +88,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
                 request_parameters = {}
 
-                key, value = parameter.split('=')
+                key, value = parameter[0].split('=')
                 request_parameters[key] = value
 
                 with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
@@ -112,8 +112,8 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
                         with open('peers-' + sys.argv[1] + '.json', 'r') as f:
                             peers = json.load(f)
-                        print(request_address)
-                        print('request_address')
+                        # print(request_address)
+                        # print('request_address')
                         if request_address not in peers['peers']:
                             peers['peers'].append(request_address)
                             with open('peers-' + sys.argv[1] + '.json', 'w+') as f:
@@ -128,16 +128,18 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     self.request.sendall(response.encode())
 
         elif request_method == 'POST':
+
             response_list = chain_string.decode().split('\r\n\r\n')
+            # print("response list", response_list)
             headers, body = response_list[0], response_list[1]
             headers = headers.split('\r\n')
-            print("headers.split()")
-            print(headers)
-            print("body")
-            print(body)
+            # print("headers.split()")
+            # print(headers)
+            # print("body")
+            # print(body)
             request_path = headers[0].split(' ')[1]
-            print("request_path")
-            print(request_path)
+            # print("request_path")
+            # print(request_path)
             if '/block' in request_path:  # /block
                 received_block = json.loads(body)
 
@@ -145,29 +147,18 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     current_blocks = json.load(f)
 
                 blockchain = Blockchain()
+
                 for current_block in current_blocks['chain'][1:]:
                     block = Block(current_block['index'], current_block['timestamp'],
                                   current_block['data'], current_block['previous hash'])
-                    print("saved block")
-                    print(block.to_string())
+
                     blockchain.add_block(block)
 
-                latest_block = blockchain.get_latest_block()
-                print("latest block")
-                print(latest_block.index)
-                print(latest_block.hash)
-                print(latest_block.previous_hash)
-                print(latest_block.timestamp)
-                print(latest_block.data)
-                print("current_hash")
-                print(received_block['previous hash'])
-                if latest_block.hash == received_block['previous hash']:
-                    print("WILL ADD NEW BLOCK !!!!!!!!!!!!!!!!!!!!!!!!!")
-                    new_block = Block(received_block['index'], received_block['timestamp'],
-                                      received_block['data'], received_block['previous hash'])
 
-                    blockchain.add_block(new_block)
-                    blockchain.to_string()
+                new_block = Block(received_block['index'], received_block['timestamp'],
+                                  received_block['data'], received_block['previous hash'])
+                if blockchain.add_block(new_block):
+                    print("New block added !!!!!!!!!!!!!!!!!!!!!!!!!")
 
                     blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
                     blocks.write(blockchain.to_string())
@@ -184,7 +175,10 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                             client_blocks(ip, int(port), 'block', new_block)
 
                 else:
-                    print("NOT ADDING NEW BLOCK !!!!!!!!!!!!!!!!!!!!!!!!!")
+                    print("New block refused !!!!!!!!!!!!!!!!!!!!!!!!!")
+                    #print(blockchain.to_string())
+                    #print("/-----------------------------------/")
+                    #print(new_block.to_string())
                     error_message = json.dumps({"errcode": 400, "errmsg": "Block already exists"})
                     json_length = len(error_message)
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
@@ -192,7 +186,9 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     self.request.sendall(response.encode())
 
             if '/inv' in request_path:
+
                 received_transaction = json.loads(body)
+
                 received_transaction = Transaction(received_transaction['index'],
                                                    received_transaction['timestamp'],
                                                    received_transaction['data'])
@@ -214,7 +210,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     response = headers + error_message
                     self.request.sendall(response.encode())
                 else:
-
+                    print("Received transaction:",received_transaction.to_string())
                     transactions.add_transaction(received_transaction)
 
                     transactions_file = open('transactions-' + sys.argv[1] + '.json', "w+")
@@ -229,4 +225,4 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                         json_data = json.load(f)
                         for peer in json_data['peers']:
                             ip, port = peer.split(':')
-                            client_blocks(ip, int(port), 'transaction', received_transaction)
+                            client_blocks(ip, int(port), 'transaction', received_transaction, "127.0.0.1:" + sys.argv[1])
