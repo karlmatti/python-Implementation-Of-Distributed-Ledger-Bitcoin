@@ -8,8 +8,7 @@ class TransactionV2:
         self.trn_sum = trn_sum
         self.trn_timestamp = trn_timestamp
 
-    def calculate_hash(self):
-        return hashlib.sha256(self.to_string().encode('utf-8')).hexdigest()
+
 
     def to_string(self):
         return '{"from": "' + self.trn_from + '",' + \

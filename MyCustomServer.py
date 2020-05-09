@@ -8,15 +8,14 @@ import threading
 from datetime import datetime
 from time import time
 
-from ecdsa import SigningKey
+from ecdsa import SigningKey, VerifyingKey, BadSignatureError
 
 from Block import Block
 from Blockchain import Blockchain
 from Signed_Transaction import SignedTransaction
 from ThreadedTCPServer import ThreadedTCPServer
-from Transaction import Transaction
 from TransactionV2 import TransactionV2
-from Transactions import Transactions
+from TransactionV2Chain import TransactionV2Chain
 from client import client_packet
 from client import client_peers
 
@@ -194,33 +193,68 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             elif '/inv' in request_path:
 
                 received_transaction = json.loads(body)
+                transactionV2 = TransactionV2(received_transaction['transaction']['from'],
+                                              received_transaction['transaction']['to'],
+                                              received_transaction['transaction']['sum'],
+                                              received_transaction['transaction']['timestamp'])
+                signature = received_transaction['signature']
+                signed_transaction = SignedTransaction(signature, transactionV2)
 
-                received_transaction = Transaction(received_transaction['index'],
-                                                   received_transaction['timestamp'],
-                                                   received_transaction['data'])
+                # received_transaction = Transaction(received_transaction['index'],
+                #                                   received_transaction['timestamp'],
+                #                                   received_transaction['data'])
                 with open('transactions-' + sys.argv[1] + '.json', 'r') as f:
                     current_transactions = json.load(f)
-                transactions = Transactions([])
+                transactionV2Chain = TransactionV2Chain([])
 
                 if current_transactions['transactions']:
                     for current_transaction in current_transactions['transactions']:
-                        transaction = Transaction(current_transaction['index'],
-                                                  current_transaction['timestamp'],
-                                                  current_transaction['data'])
-                        transactions.add_transaction(transaction)
+                        transaction = SignedTransaction(current_transaction['signature'], TransactionV2(current_transaction['transaction']['from'],
+                                                    current_transaction['transaction']['to'],
+                                                    current_transaction['transaction']['sum'],
+                                                    current_transaction['transaction']['timestamp']))
 
-                if transactions.is_transaction_in_list(received_transaction):
+                        transactionV2Chain.add_transaction(transaction)
+
+
+                if transactionV2Chain.is_transaction_in_list(signed_transaction):
                     error_message = json.dumps({"errcode": 400, "errmsg": "Transaction already exists"})
                     json_length = len(error_message)
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
                     response = headers + error_message
                     self.request.sendall(response.encode())
                 else:
-                    print("Received transaction:", received_transaction.to_string())
-                    transactions.add_transaction(received_transaction)
+
+
+                    new_signature = bytearray.fromhex(signed_transaction.signature)
+                    new_message = bytes(signed_transaction.transaction.to_string(), 'ascii')
+                    new_public_key = VerifyingKey.from_string(
+                        bytearray.fromhex(signed_transaction.transaction.trn_from))
+                    try:
+                        if new_public_key.verify(new_signature, new_message): # verifitseeri saadud transaktsioon
+
+                            # TODO: vaata kas transaktsiooni tegijal on piisavalt raha
+
+                            transactionV2Chain.add_transaction(signed_transaction)
+                            print("transaktsioonide arv:", len(transactionV2Chain.chain))
+                            if len(transactionV2Chain.chain) >= n_transactions:  # Vaata kas on kogunenud n transaktsiooni
+
+                                # TODO: siis hakka transactionitest plokke moodustama
+                                    # TODO: lisa 1 bitcoin oma balanssi saatjalt 0
+                                print("laks labi")
+
+
+                    except BadSignatureError:
+                        error_message = json.dumps({"errcode": 400, "errmsg": "Bad Signature Error"})
+                        json_length = len(error_message)
+                        headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
+                        response = headers + error_message
+                        self.request.sendall(response.encode())
+
+
 
                     transactions_file = open('transactions-' + sys.argv[1] + '.json', "w+")
-                    transactions_file.write(transactions.to_string())
+                    transactions_file.write(transactionV2Chain.to_string())
                     transactions_file.close()
 
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: plain/text\r\n\r\n' % 1
@@ -231,7 +265,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                         json_data = json.load(f)
                         for peer in json_data['peers']:
                             ip, port = peer.split(':')
-                            client_packet(ip, int(port), 'transaction', received_transaction,
+                            client_packet(ip, int(port), 'transaction', signed_transaction,
                                           "127.0.0.1:" + sys.argv[1])
 
             elif '/money' in request_path:
@@ -254,9 +288,10 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                                                                                          'ascii')).hex(),
                                                                   transaction_object)
 
-                    #transaction_message = signed_transaction_object.to_string()
+                    # transaction_message = signed_transaction_object.to_string()
 
-                    response_message = json.dumps({"message": "Thanks! %s bitcoins are on the way." % transaction_json["sum"]})
+                    response_message = json.dumps(
+                        {"message": "Thanks! %s bitcoins are on the way." % transaction_json["sum"]})
                     json_length = len(response_message)
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
                     response = headers + response_message
@@ -269,12 +304,12 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     self.request.sendall(response.encode())
 
 
-
 if __name__ == "__main__":
     private_key = SigningKey.generate()
     public_key = private_key.verifying_key
     balance = 10
     host_ip = "localhost"
+    n_transactions = 2
 
     host_port = int(sys.argv[1])
 
@@ -312,7 +347,7 @@ if __name__ == "__main__":
     blocks.write(blocks_chain)
     blocks.close()
 
-    my_transactions = Transactions([])
+    my_transactions = TransactionV2Chain([])
 
     transactions = open('transactions-' + sys.argv[1] + '.json', "w+")
     transactions.write(my_transactions.to_string())
