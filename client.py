@@ -3,7 +3,7 @@ import socket
 import sys
 
 
-def client_blocks(ip, port, packet_type, packet, host):
+def client_packet(ip, port, packet_type, packet, host):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     try:

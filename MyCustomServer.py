@@ -1,12 +1,24 @@
+import threading
+from time import time
+
 import json
 import socketserver
 import sys
+import threading
+from datetime import datetime
+from time import time
+
+from ecdsa import SigningKey
 
 from Block import Block
 from Blockchain import Blockchain
+from Signed_Transaction import SignedTransaction
+from ThreadedTCPServer import ThreadedTCPServer
 from Transaction import Transaction
+from TransactionV2 import TransactionV2
 from Transactions import Transactions
-from client import client_blocks
+from client import client_packet
+from client import client_peers
 
 
 class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
@@ -23,7 +35,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
         request_method = data_list[0].split(' ')[0]
         request_path = data_list[0].split(' ')[1]
-        #print("Request path %s" % data_list)
+        # print("Request path %s" % data_list)
         if request_method == 'GET':
 
             if '/getblocks' in request_path:
@@ -80,8 +92,6 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 request_path_list = request_path.split("?")
                 request_path_list.pop(0)
 
-
-
             elif '/getdata' in request_path:  # /getdata?id=1b7382f10c8c0cb95327f96db02155e197659c9cd1c0c55b68d5264ae0292375
                 parameter = request_path.split("?")
                 parameter.pop(0)
@@ -127,19 +137,16 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     response = headers + chain_json
                     self.request.sendall(response.encode())
 
+
         elif request_method == 'POST':
 
             response_list = chain_string.decode().split('\r\n\r\n')
-            # print("response list", response_list)
+
             headers, body = response_list[0], response_list[1]
             headers = headers.split('\r\n')
-            # print("headers.split()")
-            # print(headers)
-            # print("body")
-            # print(body)
+
             request_path = headers[0].split(' ')[1]
-            # print("request_path")
-            # print(request_path)
+
             if '/block' in request_path:  # /block
                 received_block = json.loads(body)
 
@@ -153,7 +160,6 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                                   current_block['data'], current_block['previous hash'])
 
                     blockchain.add_block(block)
-
 
                 new_block = Block(received_block['index'], received_block['timestamp'],
                                   received_block['data'], received_block['previous hash'])
@@ -172,20 +178,20 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                         json_data = json.load(f)
                         for peer in json_data['peers']:
                             ip, port = peer.split(':')
-                            client_blocks(ip, int(port), 'block', new_block)
+                            client_packet(ip, int(port), 'block', new_block)
 
                 else:
                     print("New block refused !!!!!!!!!!!!!!!!!!!!!!!!!")
-                    #print(blockchain.to_string())
-                    #print("/-----------------------------------/")
-                    #print(new_block.to_string())
+                    # print(blockchain.to_string())
+                    # print("/-----------------------------------/")
+                    # print(new_block.to_string())
                     error_message = json.dumps({"errcode": 400, "errmsg": "Block already exists"})
                     json_length = len(error_message)
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
                     response = headers + error_message
                     self.request.sendall(response.encode())
 
-            if '/inv' in request_path:
+            elif '/inv' in request_path:
 
                 received_transaction = json.loads(body)
 
@@ -210,7 +216,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     response = headers + error_message
                     self.request.sendall(response.encode())
                 else:
-                    print("Received transaction:",received_transaction.to_string())
+                    print("Received transaction:", received_transaction.to_string())
                     transactions.add_transaction(received_transaction)
 
                     transactions_file = open('transactions-' + sys.argv[1] + '.json', "w+")
@@ -225,4 +231,107 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                         json_data = json.load(f)
                         for peer in json_data['peers']:
                             ip, port = peer.split(':')
-                            client_blocks(ip, int(port), 'transaction', received_transaction, "127.0.0.1:" + sys.argv[1])
+                            client_packet(ip, int(port), 'transaction', received_transaction,
+                                          "127.0.0.1:" + sys.argv[1])
+
+            elif '/money' in request_path:
+                """
+                {
+                "to": "abcde4dc843191ef4ee90e948cb9767dcf2c8da6f800a64a6f10aeaf4e1c05085a4a70cd260b9197207334963a9d8c8e",
+                "sum": 4
+                }
+                """
+                global balance
+                transaction_json = json.loads(body)
+
+                if transaction_json["sum"] <= balance:
+                    balance -= transaction_json["sum"]
+                    transaction_object = TransactionV2(public_key.to_string().hex(),
+                                                       transaction_json["to"],
+                                                       transaction_json["sum"],
+                                                       datetime.now().isoformat())
+                    signed_transaction_object = SignedTransaction(private_key.sign(bytes(transaction_object.to_string(),
+                                                                                         'ascii')).hex(),
+                                                                  transaction_object)
+
+                    #transaction_message = signed_transaction_object.to_string()
+
+                    response_message = json.dumps({"message": "Thanks! %s bitcoins are on the way." % transaction_json["sum"]})
+                    json_length = len(response_message)
+                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
+                    response = headers + response_message
+                    self.request.sendall(response.encode())
+                else:
+                    error_message = json.dumps({"message": "Sorry! Not enough funds."})
+                    json_length = len(error_message)
+                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
+                    response = headers + error_message
+                    self.request.sendall(response.encode())
+
+
+
+if __name__ == "__main__":
+    private_key = SigningKey.generate()
+    public_key = private_key.verifying_key
+    balance = 10
+    host_ip = "localhost"
+
+    host_port = int(sys.argv[1])
+
+    server = ThreadedTCPServer((host_ip, host_port), ThreadedTCPRequestHandler)
+    ip, port = server.server_address
+
+    # start a thread with the server.
+    # the thread will then start one more thread for each request.
+    server_thread = threading.Thread(target=server.serve_forever)
+
+    # exit the server thread when the main thread terminates
+    server_thread.daemon = True
+    server_thread.start()
+    # print("Server loop running in thread:", server_thread.name)
+
+    # print(str(taltechCoin.get_latest_block().to_string()))
+    # Reads default peers from peers-default.json file
+    with open('peers-default.json', 'r') as f:
+        data = json.load(f)
+
+    # Creates or overwrites peers-<PORT>.json file with default peers
+    f = open('peers-' + sys.argv[1] + '.json', "w+")
+    f.write(json.dumps(data))
+    f.close()
+    # Creating data for block
+    taltechCoin = Blockchain()
+
+    block = Block("1", "01/02/2020", 1, taltechCoin.get_latest_block().hash)
+
+    taltechCoin.add_block(block)
+
+    blocks_chain = taltechCoin.to_string()
+    #  print(taltechCoin.get_latest_block().hash)
+    blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
+    blocks.write(blocks_chain)
+    blocks.close()
+
+    my_transactions = Transactions([])
+
+    transactions = open('transactions-' + sys.argv[1] + '.json', "w+")
+    transactions.write(my_transactions.to_string())
+    transactions.close()
+
+    prev = time()
+    while True:
+        now = time()
+        if now - prev > 15:
+            with open('peers-' + sys.argv[1] + '.json', 'r') as f:
+                json_data = json.load(f)
+                # print("json_data")
+                # print(json_data)
+                for peer in json_data['peers']:
+                    ip, port = peer.split(':')
+                    # print("I have a fellow %s:%s" % (ip, port))
+                    client_peers(ip, int(port), "127.0.0.1:" + sys.argv[1])
+
+            prev = now
+        else:
+            pass
+            # runs
