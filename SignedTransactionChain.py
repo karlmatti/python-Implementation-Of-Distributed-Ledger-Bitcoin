@@ -1,4 +1,4 @@
-class TransactionV2Chain:
+class SignedTransactionChain:
     def __init__(self, chain):
         self.chain = chain
 
@@ -20,3 +20,13 @@ class TransactionV2Chain:
             return returned_string
         else:
             return '{"transactions":[]}'
+
+    def chain_to_string(self):
+        returned_string = '['
+        if self.chain:
+            for transaction in self.chain:
+                returned_string += transaction.to_string() + ","
+            returned_string = returned_string[:-1] + ']'
+            return returned_string
+        else:
+            return '[]'
