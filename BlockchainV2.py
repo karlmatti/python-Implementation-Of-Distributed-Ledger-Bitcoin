@@ -52,6 +52,52 @@ class Blockchain:
                 return True
         return False
 
+    def is_not_duplicate_transaction(self, signed_transactions, added_transaction):
+
+        if not signed_transactions:
+            return True
+        for current_transaction in signed_transactions:
+
+            if added_transaction.signature == current_transaction.signature:
+                return False
+        return True
+
+    def has_enough_funds(self, public_key, money):
+        received_money = 0
+        sent_money = 0
+        received_transactions = []
+        sent_transactions = []
+
+        level = 0
+        for level_blocks in range(len(self.chain)):
+            print("Level:", level)
+            level += 1
+            for block in self.chain[level_blocks]:
+                for signed_transaction in block.transactions.chain:
+                    print("Pk: %s, trn_from: %s, trn_to: %s, sum: %d" % (
+                    public_key, signed_transaction.transaction.trn_from, signed_transaction.transaction.trn_to,
+                    signed_transaction.transaction.trn_sum))
+
+                    if signed_transaction.transaction.trn_from == public_key and self.is_not_duplicate_transaction(
+                            sent_transactions,
+                            signed_transaction):
+                        sent_transactions.append(signed_transaction)
+                        sent_money += signed_transaction.transaction.trn_sum
+                    if signed_transaction.transaction.trn_to == public_key and self.is_not_duplicate_transaction(
+                            received_transactions,
+                            signed_transaction):
+                        received_money += signed_transaction.transaction.trn_sum
+                        received_transactions.append(signed_transaction)
+
+        total_money = received_money - sent_money
+        print("received money:", received_money)
+        print("sent money:", sent_money)
+
+        if total_money >= money:
+            return True
+        else:
+            return False
+
     def add_block(self, new_block):
         # new_block.previous_hash = self.get_latest_block().hash
         # new_block.hash = new_block.calculate_hash()
