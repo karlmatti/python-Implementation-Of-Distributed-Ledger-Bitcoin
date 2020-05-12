@@ -20,18 +20,20 @@ from SignedTransactionChain import SignedTransactionChain
 from client import client_packet
 from client import client_peers
 
+
 def oneBitcoinTransactionToMyWallet():
     transactionToMyself = TransactionV2("System", public_key.to_string().hex(),
-                                 1, datetime.now().isoformat())
+                                        1, datetime.now().isoformat())
     signedTransactionToMyself = SignedTransaction("System", transactionToMyself)
     return signedTransactionToMyself
+
 
 def startCreatingBlock(index, signedTransactionChain, my_public_key, previous_hash):
     stringLength = 20
     lettersAndDigits = string.ascii_letters + string.digits
 
     new_block = BlockV2(index, datetime.now().isoformat(), "nonce", my_public_key.to_string().hex(),
-                          signedTransactionChain, previous_hash)
+                        signedTransactionChain, previous_hash)
     while new_block.hash[0:4] != "0000":
         new_block.nonce = (''.join(random.choice(lettersAndDigits) for _ in range(stringLength)))
         new_block.hash = new_block.calculate_hash()
@@ -48,18 +50,21 @@ def readBlockChainFromFile():
 
             for block in block_levels:
 
-                signedTransactionChain = SignedTransactionChain([])
+                if block["nr"] != 0:
+                    signedTransactionChain = SignedTransactionChain([])
 
-                for signedTransactionDict in block["transactions"]:
-                    transactionDict = signedTransactionDict["transaction"]
-                    print('signedTransactionDict["transaction"]', type(signedTransactionDict["transaction"]))
-                    signedTransaction = SignedTransaction(
-                        signedTransactionDict["signature"],
-                        TransactionV2(transactionDict["from"], transactionDict["to"],
-                                      transactionDict["sum"], transactionDict["timestamp"]))
-                    signedTransactionChain.add_transaction(signedTransaction)
-                blockChain.add_block(BlockV2(block["nr"], block["previous_hash"],block["timestamp"],
-                                             block["creator"], signedTransactionChain, block["nonce"]))
+                    for signedTransactionDict in block["transactions"]:
+                        transactionDict = signedTransactionDict["transaction"]
+                        # print('signedTransactionDict["transaction"]', type(signedTransactionDict["transaction"]))
+                        signedTransaction = SignedTransaction(
+                            signedTransactionDict["signature"],
+                            TransactionV2(transactionDict["from"], transactionDict["to"],
+                                          transactionDict["sum"], transactionDict["timestamp"]))
+                        signedTransactionChain.add_transaction(signedTransaction)
+                    blockChain.add_block(BlockV2(block["nr"], block["timestamp"], block["nonce"], block["creator"],
+                                                 signedTransactionChain,
+                                                 block["previous_hash"]))
+
     return blockChain
 
 
@@ -68,6 +73,42 @@ def writeBlockChainToFile(currentBlockChain):
     blocks.write(currentBlockChain.to_string())
     blocks.close()
 
+
+def is_valid_merkle_root(received_block, given_merkle_root):
+    if received_block.merkle_root == given_merkle_root:
+        return True
+    return False
+
+
+def get_error_msg(message):
+    error_message = json.dumps({"errcode": 400, "errmsg": message})
+    json_length = len(error_message)
+    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
+    response = headers + error_message
+    return response.encode()
+
+
+def getBlocksFromHash(blockChain, hash):
+    previous_hash = hash
+    blocksFromHash = "["
+    for blocksInLevel in blockChain.chain:
+        for block in blocksInLevel:
+            print("block.hash", block.hash)
+            print("previous_hash", previous_hash)
+            if block.previous_hash == previous_hash or block.hash == hash:
+                blocksFromHash += block.to_string() + ','
+                previous_hash = block.hash
+
+    return blocksFromHash[1:] + ']'
+
+
+def getBlockFromHash(blockChain, hash):
+    for blocksInLevel in blockChain.chain:
+        for block in blocksInLevel:
+            if block.hash == hash:
+                return block
+
+    return -1
 
 
 class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
@@ -94,50 +135,23 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     request_parameters = {}
                     key, value = request_path.split('=')
                     key = key.split("?")[1]
-                    # print("key", key)
-                    # print("value", value)
+
                     request_parameters[key] = value
+                    blockChain = readBlockChainFromFile()
+                    requestedBlocks = '{"chain": ' + getBlocksFromHash(blockChain, request_parameters['id']) + '}'
+                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % len(
+                        requestedBlocks)
 
-                    with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
-                        chain_json = json.load(f)
-                        is_id_found = False
-                        returned_blocks = []
-
-                        for block in chain_json['chain']:
-                            if block['hash'] == request_parameters['id']:
-                                is_id_found = True
-
-                                returned_blocks.append(Block(block['index'],
-                                                             block['timestamp'],
-                                                             block['data'],
-                                                             block['previous hash']
-                                                             ))
-                            elif is_id_found:
-                                returned_blocks.append(Block(block['index'],
-                                                             block['timestamp'],
-                                                             block['data'],
-                                                             block['previous hash']))
-
-                        chain_returned_blocks = Blockchain()
-                        chain_returned_blocks.chain = returned_blocks
-                        returned_blocks_string = chain_returned_blocks.to_string()
-
-                        json_length = len(returned_blocks_string)
-                        headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
-                        response = headers + returned_blocks_string
-                        self.request.sendall(response.encode())
+                    response = headers + requestedBlocks
+                    self.request.sendall(response.encode())
 
                 else:  # /getblocks
-                    with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
-                        chain_string = json.load(f)
-                        chain_json = json.dumps(chain_string)
-                        json_length = len(chain_json)
-                        headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
+                    blockChain = readBlockChainFromFile().to_string()
+                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % len(
+                        blockChain)
+                    response = headers + blockChain
+                    self.request.sendall(response.encode())
 
-                        response = headers + chain_json
-                        self.request.sendall(response.encode())
-
-                    pass
                 request_path_list = request_path.split("?")
                 request_path_list.pop(0)
 
@@ -150,18 +164,12 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 key, value = parameter[0].split('=')
                 request_parameters[key] = value
 
-                with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
-                    chain_json = json.load(f)
-                    returned_block = ""
-
-                    for block in chain_json['chain']:
-                        if block['hash'] == request_parameters['id']:
-                            returned_block = json.dumps(block)
-
-                    json_length = len(returned_block)
-                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
-                    response = headers + returned_block
-                    self.request.sendall(response.encode())
+                blockChain = readBlockChainFromFile()
+                requested_block = getBlockFromHash(blockChain, request_parameters['id']).to_string()
+                headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % (
+                    len(requested_block))
+                response = headers + requested_block
+                self.request.sendall(response.encode())
 
             elif '/getpeers' in request_path:
                 for row in data_list:
@@ -186,7 +194,6 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     response = headers + chain_json
                     self.request.sendall(response.encode())
 
-
         elif request_method == 'POST':
 
             response_list = chain_string.decode().split('\r\n\r\n')
@@ -196,45 +203,44 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             request_path = headers[0].split(' ')[1]
 
             if '/block' in request_path:  # /block
-                received_block = json.loads(body)
+                received_block_json = json.loads(body)
+                signedTransactionChain = SignedTransactionChain([])
+                for transaction_json in received_block_json['transactions']:
+                    received_transaction = TransactionV2(transaction_json['transaction']['from'],
+                                                         transaction_json['transaction']['to'],
+                                                         transaction_json['transaction']['sum'],
+                                                         transaction_json['transaction']['timestamp'])
+                    received_signed_trans = SignedTransaction(transaction_json['signature'], received_transaction)
+                    signedTransactionChain.add_transaction(received_signed_trans)
 
-                with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
-                    current_blocks = json.load(f)
+                received_block = BlockV2(received_block_json['nr'], received_block_json['timestamp'],
+                                         received_block_json['nonce'], received_block_json['creator'],
+                                         signedTransactionChain, received_block_json['previous_hash'])
+                blockChain = readBlockChainFromFile()
+                if is_valid_merkle_root(received_block, received_block_json['merkle_root']):
+                    if blockChain.add_block(received_block):
+                        # kirjuta blockchain faili tagasi
+                        # print("kirjuta blockchain faili tagasi")
+                        # print("uus blockchain",blockChain.to_string())
+                        writeBlockChainToFile(blockChain)
+                        headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: plain/text\r\n\r\n' % 1
+                        response = headers + "1"
+                        self.request.sendall(response.encode())
 
-                blockchain = Blockchain()
+                        # '''
+                        #                     with open('peers-' + sys.argv[1] + '.json', 'r') as f:
+                        #     json_data = json.load(f)
+                        #     for peer in json_data['peers']:
+                        #         ip, port = peer.split(':')
+                        #         client_packet(ip, int(port), 'block', new_block)
+                        # '''
 
-                for current_block in current_blocks['chain'][1:]:
-                    block = Block(current_block['index'], current_block['timestamp'],
-                                  current_block['data'], current_block['previous hash'])
-
-                    blockchain.add_block(block)
-
-                new_block = Block(received_block['index'], received_block['timestamp'],
-                                  received_block['data'], received_block['previous hash'])
-                if blockchain.add_block(new_block):
-                    print("New block added !!!!!!!!!!!!!!!!!!!!!!!!!")
-
-                    blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
-                    blocks.write(blockchain.to_string())
-                    blocks.close()
-
-                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: plain/text\r\n\r\n' % 1
-                    response = headers + "1"
-                    self.request.sendall(response.encode())
-                    #  hakka neid edasi saatma
-                    with open('peers-' + sys.argv[1] + '.json', 'r') as f:
-                        json_data = json.load(f)
-                        for peer in json_data['peers']:
-                            ip, port = peer.split(':')
-                            client_packet(ip, int(port), 'block', new_block)
+                    else:
+                        self.request.sendall(get_error_msg("Received block is not valid for my blockchain!"))
 
                 else:
-                    print("New block refused !!!!!!!!!!!!!!!!!!!!!!!!!")
-                    error_message = json.dumps({"errcode": 400, "errmsg": "Block already exists"})
-                    json_length = len(error_message)
-                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
-                    response = headers + error_message
-                    self.request.sendall(response.encode())
+                    self.request.sendall(get_error_msg("Merkle root is not valid!"))
+
 
             elif '/inv' in request_path:
 
@@ -261,11 +267,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                         signedTransactionChain.add_transaction(transaction)
 
                 if signedTransactionChain.is_transaction_in_list(signed_transaction):
-                    error_message = json.dumps({"errcode": 400, "errmsg": "Transaction already exists"})
-                    json_length = len(error_message)
-                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
-                    response = headers + error_message
-                    self.request.sendall(response.encode())
+                    self.request.sendall(get_error_msg("Transaction already exists!"))
                 else:
 
                     new_signature = bytearray.fromhex(signed_transaction.signature)
@@ -275,17 +277,20 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     try:
                         if new_public_key.verify(new_signature, new_message):  # verifitseeri saadud transaktsioon
                             blockChain = readBlockChainFromFile()
-                            blockChain.has_enough_funds(public_key.to_string().hex(), signed_transaction.transaction.trn_sum)
+                            blockChain.has_enough_funds(public_key.to_string().hex(),
+                                                        signed_transaction.transaction.trn_sum)
                             # TODO: fixi kas transaktsiooni tegijal on piisavalt raha
 
                             signedTransactionChain.add_transaction(signed_transaction)
                             print("transaktsioonide arv:", len(signedTransactionChain.chain))
-                            if len(signedTransactionChain.chain) >= n_transactions:  # Vaata kas on kogunenud n transaktsiooni
+                            if len(
+                                    signedTransactionChain.chain) >= n_transactions:  # Vaata kas on kogunenud n transaktsiooni
                                 signedTransactionChain.add_transaction(oneBitcoinTransactionToMyWallet())
                                 currentBlockChain = readBlockChainFromFile()
                                 latest_block = currentBlockChain.get_latest_block()
-                                new_block_in_da_hood = startCreatingBlock(latest_block.nr + 1, signedTransactionChain, public_key, latest_block.hash)
-                                print("new_block_in_da_hood",new_block_in_da_hood.to_string())
+                                new_block_in_da_hood = startCreatingBlock(latest_block.nr + 1, signedTransactionChain,
+                                                                          public_key, latest_block.hash)
+                                print("new_block_in_da_hood", new_block_in_da_hood.to_string())
                                 currentBlockChain.add_block(new_block_in_da_hood)
                                 writeBlockChainToFile(currentBlockChain)
 
@@ -293,11 +298,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
 
                     except BadSignatureError:
-                        error_message = json.dumps({"errcode": 400, "errmsg": "Bad Signature Error"})
-                        json_length = len(error_message)
-                        headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
-                        response = headers + error_message
-                        self.request.sendall(response.encode())
+                        self.request.sendall(get_error_msg("Bad Signature Error"))
 
                     transactions_file = open('transactions-' + sys.argv[1] + '.json', "w+")
                     transactions_file.write(signedTransactionChain.to_string())
@@ -343,18 +344,14 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     response = headers + response_message
                     self.request.sendall(response.encode())
                 else:
-                    error_message = json.dumps({"message": "Sorry! Not enough funds."})
-                    json_length = len(error_message)
-                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
-                    response = headers + error_message
-                    self.request.sendall(response.encode())
+                    self.request.sendall(get_error_msg("Sorry! Not enough funds."))
 
 
 if __name__ == "__main__":
     private_key = SigningKey.generate()
     public_key = private_key.verifying_key
-    print("My private key is ", private_key.to_string())
-    print("My public key is ", public_key.to_string())
+    # print("My private key is ", private_key.to_string())
+    # print("My public key is ", public_key.to_string())
     balance = 10
     host_ip = "localhost"
     n_transactions = 2
@@ -384,13 +381,13 @@ if __name__ == "__main__":
     f.close()
     # Creating data for block
     taltechCoin = Blockchain()
-    print("taltechCoin:", taltechCoin.to_string())
+    # print("taltechCoin:", taltechCoin.to_string())
     #  print(taltechCoin.get_latest_block().hash)
     blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
     blocks.write(taltechCoin.to_string())
     blocks.close()
 
-    print("blockchain from file:",readBlockChainFromFile().to_string())
+    # print("blockchain from file:", readBlockChainFromFile().to_string())
     my_transactions = SignedTransactionChain([])
 
     transactions = open('transactions-' + sys.argv[1] + '.json', "w+")

@@ -47,6 +47,7 @@ class Blockchain:
 
     def is_connected_to_previous(self, new_block):
         previous_index = new_block.nr - 1
+
         for previous_block in self.chain[previous_index]:
             if previous_block.hash == new_block.previous_hash:
                 return True
@@ -75,8 +76,8 @@ class Blockchain:
             for block in self.chain[level_blocks]:
                 for signed_transaction in block.transactions.chain:
                     print("Pk: %s, trn_from: %s, trn_to: %s, sum: %d" % (
-                    public_key, signed_transaction.transaction.trn_from, signed_transaction.transaction.trn_to,
-                    signed_transaction.transaction.trn_sum))
+                        public_key, signed_transaction.transaction.trn_from, signed_transaction.transaction.trn_to,
+                        signed_transaction.transaction.trn_sum))
 
                     if signed_transaction.transaction.trn_from == public_key and self.is_not_duplicate_transaction(
                             sent_transactions,
@@ -101,13 +102,19 @@ class Blockchain:
     def add_block(self, new_block):
         # new_block.previous_hash = self.get_latest_block().hash
         # new_block.hash = new_block.calculate_hash()
+        #print("add_block - new_block.nr", new_block.nr)
+        #print("add_block - len(self.chain)", len(self.chain))
+
         if new_block.nr == len(self.chain):
-            if self.is_connected_to_previous(new_block):
+            if self.is_connected_to_previous(
+                    new_block):  # kui lisatakse blokk, mis on madalamal levelil kui praegune chain
                 self.chain.append([new_block])
                 return True
-        elif new_block.nr < len(self.chain):
+        elif len(self.chain) > new_block.nr > 0:  # kui lisatakse blokk ja ei pea tegema uut levelit selle jaoks
+
             if self.is_connected_to_previous(new_block):
                 self.chain[new_block.nr].append(new_block)
+
                 return True
         return False
 
@@ -127,3 +134,9 @@ class Blockchain:
 
     def to_json(self):
         return json.dumps(self.to_string(), separators=(',', ':'))
+
+
+
+
+
+
