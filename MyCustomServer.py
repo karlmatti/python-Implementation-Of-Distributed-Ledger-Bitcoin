@@ -7,17 +7,67 @@ import sys
 import threading
 from datetime import datetime
 from time import time
+import string
+import random
 
 from ecdsa import SigningKey, VerifyingKey, BadSignatureError
-
-from Block import Block
-from Blockchain import Blockchain
-from Signed_Transaction import SignedTransaction
+from BlockV2 import BlockV2
+from BlockchainV2 import Blockchain
+from SignedTransaction import SignedTransaction
 from ThreadedTCPServer import ThreadedTCPServer
 from TransactionV2 import TransactionV2
-from TransactionV2Chain import TransactionV2Chain
+from SignedTransactionChain import SignedTransactionChain
 from client import client_packet
 from client import client_peers
+
+def oneBitcoinTransactionToMyWallet():
+    transactionToMyself = TransactionV2("System", public_key.to_string().hex(),
+                                 1, datetime.now().isoformat())
+    signedTransactionToMyself = SignedTransaction("System", transactionToMyself)
+    return signedTransactionToMyself
+
+def startCreatingBlock(index, signedTransactionChain, my_public_key, previous_hash):
+    stringLength = 20
+    lettersAndDigits = string.ascii_letters + string.digits
+
+    new_block = BlockV2(index, datetime.now().isoformat(), "nonce", my_public_key.to_string().hex(),
+                          signedTransactionChain, previous_hash)
+    while new_block.hash[0:4] != "0000":
+        new_block.nonce = (''.join(random.choice(lettersAndDigits) for _ in range(stringLength)))
+        new_block.hash = new_block.calculate_hash()
+
+    return new_block
+
+
+def readBlockChainFromFile():
+    with open('blocks-' + sys.argv[1] + '.json', 'r') as f:
+        blocks_json = json.load(f)
+
+        blockChain = Blockchain()
+        for block_levels in blocks_json['chain']:
+
+            for block in block_levels:
+
+                signedTransactionChain = SignedTransactionChain([])
+
+                for signedTransactionDict in block["transactions"]:
+                    transactionDict = signedTransactionDict["transaction"]
+                    print('signedTransactionDict["transaction"]', type(signedTransactionDict["transaction"]))
+                    signedTransaction = SignedTransaction(
+                        signedTransactionDict["signature"],
+                        TransactionV2(transactionDict["from"], transactionDict["to"],
+                                      transactionDict["sum"], transactionDict["timestamp"]))
+                    signedTransactionChain.add_transaction(signedTransaction)
+                blockChain.add_block(BlockV2(block["nr"], block["previous_hash"],block["timestamp"],
+                                             block["creator"], signedTransactionChain, block["nonce"]))
+    return blockChain
+
+
+def writeBlockChainToFile(currentBlockChain):
+    blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
+    blocks.write(currentBlockChain.to_string())
+    blocks.close()
+
 
 
 class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
@@ -140,7 +190,6 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         elif request_method == 'POST':
 
             response_list = chain_string.decode().split('\r\n\r\n')
-
             headers, body = response_list[0], response_list[1]
             headers = headers.split('\r\n')
 
@@ -181,9 +230,6 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
                 else:
                     print("New block refused !!!!!!!!!!!!!!!!!!!!!!!!!")
-                    # print(blockchain.to_string())
-                    # print("/-----------------------------------/")
-                    # print(new_block.to_string())
                     error_message = json.dumps({"errcode": 400, "errmsg": "Block already exists"})
                     json_length = len(error_message)
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
@@ -200,24 +246,21 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 signature = received_transaction['signature']
                 signed_transaction = SignedTransaction(signature, transactionV2)
 
-                # received_transaction = Transaction(received_transaction['index'],
-                #                                   received_transaction['timestamp'],
-                #                                   received_transaction['data'])
                 with open('transactions-' + sys.argv[1] + '.json', 'r') as f:
                     current_transactions = json.load(f)
-                transactionV2Chain = TransactionV2Chain([])
+                signedTransactionChain = SignedTransactionChain([])
 
                 if current_transactions['transactions']:
                     for current_transaction in current_transactions['transactions']:
-                        transaction = SignedTransaction(current_transaction['signature'], TransactionV2(current_transaction['transaction']['from'],
-                                                    current_transaction['transaction']['to'],
-                                                    current_transaction['transaction']['sum'],
-                                                    current_transaction['transaction']['timestamp']))
+                        transaction = SignedTransaction(current_transaction['signature'],
+                                                        TransactionV2(current_transaction['transaction']['from'],
+                                                                      current_transaction['transaction']['to'],
+                                                                      current_transaction['transaction']['sum'],
+                                                                      current_transaction['transaction']['timestamp']))
 
-                        transactionV2Chain.add_transaction(transaction)
+                        signedTransactionChain.add_transaction(transaction)
 
-
-                if transactionV2Chain.is_transaction_in_list(signed_transaction):
+                if signedTransactionChain.is_transaction_in_list(signed_transaction):
                     error_message = json.dumps({"errcode": 400, "errmsg": "Transaction already exists"})
                     json_length = len(error_message)
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
@@ -225,23 +268,28 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                     self.request.sendall(response.encode())
                 else:
 
-
                     new_signature = bytearray.fromhex(signed_transaction.signature)
                     new_message = bytes(signed_transaction.transaction.to_string(), 'ascii')
                     new_public_key = VerifyingKey.from_string(
                         bytearray.fromhex(signed_transaction.transaction.trn_from))
                     try:
-                        if new_public_key.verify(new_signature, new_message): # verifitseeri saadud transaktsioon
+                        if new_public_key.verify(new_signature, new_message):  # verifitseeri saadud transaktsioon
+                            blockChain = readBlockChainFromFile()
+                            blockChain.has_enough_funds(public_key.to_string().hex(), signed_transaction.transaction.trn_sum)
+                            # TODO: fixi kas transaktsiooni tegijal on piisavalt raha
 
-                            # TODO: vaata kas transaktsiooni tegijal on piisavalt raha
+                            signedTransactionChain.add_transaction(signed_transaction)
+                            print("transaktsioonide arv:", len(signedTransactionChain.chain))
+                            if len(signedTransactionChain.chain) >= n_transactions:  # Vaata kas on kogunenud n transaktsiooni
+                                signedTransactionChain.add_transaction(oneBitcoinTransactionToMyWallet())
+                                currentBlockChain = readBlockChainFromFile()
+                                latest_block = currentBlockChain.get_latest_block()
+                                new_block_in_da_hood = startCreatingBlock(latest_block.nr + 1, signedTransactionChain, public_key, latest_block.hash)
+                                print("new_block_in_da_hood",new_block_in_da_hood.to_string())
+                                currentBlockChain.add_block(new_block_in_da_hood)
+                                writeBlockChainToFile(currentBlockChain)
 
-                            transactionV2Chain.add_transaction(signed_transaction)
-                            print("transaktsioonide arv:", len(transactionV2Chain.chain))
-                            if len(transactionV2Chain.chain) >= n_transactions:  # Vaata kas on kogunenud n transaktsiooni
 
-                                # TODO: siis hakka transactionitest plokke moodustama
-                                    # TODO: lisa 1 bitcoin oma balanssi saatjalt 0
-                                print("laks labi")
 
 
                     except BadSignatureError:
@@ -251,10 +299,8 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                         response = headers + error_message
                         self.request.sendall(response.encode())
 
-
-
                     transactions_file = open('transactions-' + sys.argv[1] + '.json', "w+")
-                    transactions_file.write(transactionV2Chain.to_string())
+                    transactions_file.write(signedTransactionChain.to_string())
                     transactions_file.close()
 
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: plain/text\r\n\r\n' % 1
@@ -307,6 +353,8 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 if __name__ == "__main__":
     private_key = SigningKey.generate()
     public_key = private_key.verifying_key
+    print("My private key is ", private_key.to_string())
+    print("My public key is ", public_key.to_string())
     balance = 10
     host_ip = "localhost"
     n_transactions = 2
@@ -336,18 +384,14 @@ if __name__ == "__main__":
     f.close()
     # Creating data for block
     taltechCoin = Blockchain()
-
-    block = Block("1", "01/02/2020", 1, taltechCoin.get_latest_block().hash)
-
-    taltechCoin.add_block(block)
-
-    blocks_chain = taltechCoin.to_string()
+    print("taltechCoin:", taltechCoin.to_string())
     #  print(taltechCoin.get_latest_block().hash)
     blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
-    blocks.write(blocks_chain)
+    blocks.write(taltechCoin.to_string())
     blocks.close()
 
-    my_transactions = TransactionV2Chain([])
+    print("blockchain from file:",readBlockChainFromFile().to_string())
+    my_transactions = SignedTransactionChain([])
 
     transactions = open('transactions-' + sys.argv[1] + '.json', "w+")
     transactions.write(my_transactions.to_string())

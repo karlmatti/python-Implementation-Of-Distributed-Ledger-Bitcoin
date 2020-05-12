@@ -73,9 +73,9 @@ def client_peers(ip, port, host):
 
 def get_http_request_header(method, path, host, user_agent):
     if method.lower() == "get":
-        return "GET %s HTTP/1.1\r\nHost: %s\r\nUser-agent: %s\r\n" % (path,  host, user_agent)
+        return "GET %s HTTP/1.1\r\nHost: %s\r\nUser-agent: %s\r\n\r\n" % (path,  host, user_agent)
     elif method.lower() == "post":
-        return "POST %s HTTP/1.1\r\nHost: %s\r\nUser-agent: %s\r\n" % (path,  host, user_agent)
+        return "POST %s HTTP/1.1\r\nHost: %s\r\nUser-agent: %s\r\n\r\n" % (path,  host, user_agent)
 
 
 def get_socket_error(ip, port):

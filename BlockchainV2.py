@@ -117,8 +117,11 @@ class Blockchain:
     def to_string(self):
         returned_string = '{"chain":['
 
-        for block in self.chain:
-            returned_string += block.to_string() + ","
+        for block_levels in self.chain:
+            returned_string += '['
+            for block in block_levels:
+                returned_string += block.to_string() + ","
+            returned_string = returned_string[:-1] + '],'
         returned_string = returned_string[:-1] + ']}'
         return returned_string
 
