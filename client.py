@@ -4,71 +4,81 @@ import sys
 
 
 def client_packet(ip, port, packet_type, packet, host):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    try:
-        sock.connect((ip, port))
-        if packet_type == 'transaction':
-            request = get_http_request_header("post", "/inv", host, "transaction-santa")
-            request += packet.to_string()
-            #print("transaction-santa request", request)
-            sock.send(request.encode())
-        elif packet_type == 'block':
+    host1 = str(ip) + ':' + str(port)
+    if host1 != host:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.connect((ip, port))
 
-            request = get_http_request_header("post", "/block", host, "block-santa")
+            if packet_type == 'transaction':
+                print("Saadan /inv päringut %s:%d" %(ip, port))
+                #print("type(packet)",type(packet))
+                request = get_http_request_header("post", "/inv", host, "transaction-santa")
+                request += packet.to_string()
+                #print("transaction-santa request", request)
+                sock.send(request.encode('ascii'))
+            elif packet_type == 'block':
+                print("Saadan /block päringut %s:%d" %(ip, port))
+                #print("type(packet)", type(packet))
+                request = get_http_request_header("post", "/block", host, "block-santa")
+                #print("hunja packet stringina", packet.to_string())
+                request += packet.to_string()
+                #print("block-santa request", request)
+                sock.send(request.encode('ascii'))
 
-            request += packet.to_string()
-            #print("block-santa request", request)
-            sock.send(request.encode())
 
 
+        except socket.error as e:
 
-    except socket.error as e:
+            get_socket_error(ip, port)
 
-        get_socket_error(ip, port)
-
-    finally:
-        sock.close()
+        finally:
+            sock.close()
 
 
 def client_peers(ip, port, host):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    try:
-        #print("/getpeers request to " + ip + ':' + str(port))
-        sock.connect((ip, port))
 
-        request = get_http_request_header("get", "/getpeers",  host, "threaded-server")
+    host1 = str(ip) + ':' + str(port)
+    if host1 != host:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        print("Saadan /getpeers päringut")
+        try:
+            #print("/getpeers request to " + ip + ':' + str(port))
+            sock.connect((ip, port))
 
-        sock.send(request.encode())
+            request = get_http_request_header("get", "/getpeers",  host, "threaded-server")
 
-        # receive some data
+            sock.send(request.encode('ascii'))
 
-        response = sock.recv(4096)
+            # receive some data
 
-        http_response = repr(response)
-        #print('client_peers - http_response')
-        #print(http_response)
+            response = sock.recv(4096)
 
-        response_body = json.loads(http_response.split("\\r\\n")[-1][0:-1])
-        peers = response_body['peers']
+            http_response = repr(response)
+            #print('client_peers - http_response')
+            #print(http_response)
 
-        with open('peers-' + sys.argv[1] + '.json', 'r+') as f:  # loeme peers-PORT.json failist serverid sisse
-            response_body = json.load(f)
-        peers = set(peers + response_body['peers'])
-        #print('peers')
-        #print(peers)
-        response_body['peers'] = list(peers)
+            response_body = json.loads(http_response.split("\\r\\n")[-1][0:-1])
+            peers = response_body['peers']
 
-        #print("Peers:", list(peers))
+            with open('peers-' + sys.argv[1] + '.json', 'r+') as f:  # loeme peers-PORT.json failist serverid sisse
+                response_body = json.load(f)
+            peers = set(peers + response_body['peers'])
+            #print('peers')
+            #print(peers)
+            response_body['peers'] = list(peers)
 
-        with open('peers-' + sys.argv[1] + '.json', 'w+') as f:  # kirjutame peers-PORT.json faili uuendatud andmed
-            json.dump(response_body, f)
+            #print("Peers:", list(peers))
 
-    except socket.error as e:
-        get_socket_error(ip, port)
-    finally:
-        sock.close()
+            with open('peers-' + sys.argv[1] + '.json', 'w+') as f:  # kirjutame peers-PORT.json faili uuendatud andmed
+                json.dump(response_body, f)
+
+        except socket.error as e:
+            get_socket_error(ip, port)
+        finally:
+            sock.close()
 
 
 def get_http_request_header(method, path, host, user_agent):

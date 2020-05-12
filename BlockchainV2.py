@@ -7,6 +7,8 @@ from TransactionV2 import TransactionV2
 from datetime import datetime
 
 
+
+
 class Blockchain:
     def __init__(self):
         self.chain = [[self.create_genesis_block()]]
@@ -62,7 +64,29 @@ class Blockchain:
             if added_transaction.signature == current_transaction.signature:
                 return False
         return True
-
+    def wallet_balance_by_pk(self, public_key):
+        received_money = 0
+        sent_money = 0
+        received_transactions = SignedTransactionChain([])
+        sent_transactions = SignedTransactionChain([])
+        for blocks_level in range(len(self.chain)):
+            for block in self.chain[blocks_level]:
+                for signed_transaction in block.transactions.chain:
+                    # print("Pk: %s, trn_from: %s, trn_to: %s, sum: %d" % (
+                    #     public_key, signed_transaction.transaction.trn_from, signed_transaction.transaction.trn_to,
+                    #     signed_transaction.transaction.trn_sum))
+                    #print("sent_transactions", sent_transactions.to_string())
+                    #print("received_transactions", received_transactions.to_string())
+                    #print("signed_transaction", signed_transaction.to_string())
+                    if signed_transaction.transaction.trn_from == public_key and not sent_transactions.is_transaction_in_list(signed_transaction):
+                        sent_money += signed_transaction.transaction.trn_sum
+                        sent_transactions.add_transaction(signed_transaction)
+                        #print("Lisasin endale", signed_transaction.transaction.trn_sum)
+                    if signed_transaction.transaction.trn_to == public_key and not received_transactions.is_transaction_in_list(signed_transaction):
+                        received_money += signed_transaction.transaction.trn_sum
+                        received_transactions.add_transaction(signed_transaction)
+                        #print("Saatsin endalt", signed_transaction.transaction.trn_sum)
+        return received_money - sent_money
     def has_enough_funds(self, public_key, money):
         received_money = 0
         sent_money = 0
@@ -93,6 +117,7 @@ class Blockchain:
         total_money = received_money - sent_money
         print("received money:", received_money)
         print("sent money:", sent_money)
+        print("total money:", total_money)
 
         if total_money >= money:
             return True
@@ -104,18 +129,20 @@ class Blockchain:
         # new_block.hash = new_block.calculate_hash()
         #print("add_block - new_block.nr", new_block.nr)
         #print("add_block - len(self.chain)", len(self.chain))
+        if self.is_not_in_blockchain(new_block):
 
-        if new_block.nr == len(self.chain):
-            if self.is_connected_to_previous(
-                    new_block):  # kui lisatakse blokk, mis on madalamal levelil kui praegune chain
-                self.chain.append([new_block])
-                return True
-        elif len(self.chain) > new_block.nr > 0:  # kui lisatakse blokk ja ei pea tegema uut levelit selle jaoks
+            if new_block.nr == len(self.chain):
+                if self.is_connected_to_previous(new_block):
+                    # kui lisatakse blokk, mis on madalamal levelil kui praegune chain
+                    self.chain.append([new_block])
+                    return True
+            elif len(self.chain) > new_block.nr > 0:
+                # kui lisatakse blokk ja ei pea tegema uut levelit selle jaoks
 
-            if self.is_connected_to_previous(new_block):
-                self.chain[new_block.nr].append(new_block)
+                if self.is_connected_to_previous(new_block):
+                    self.chain[new_block.nr].append(new_block)
 
-                return True
+                    return True
         return False
 
     def add_mined_block(self, new_block):
@@ -135,6 +162,12 @@ class Blockchain:
     def to_json(self):
         return json.dumps(self.to_string(), separators=(',', ':'))
 
+    def is_not_in_blockchain(self, new_block):
+        for level_blocks in range(len(self.chain)):
+            for block in self.chain[level_blocks]:
+                if block.hash == new_block.hash:
+                    return False
+        return True
 
 
 

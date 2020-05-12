@@ -29,6 +29,7 @@ def oneBitcoinTransactionToMyWallet():
 
 
 def startCreatingBlock(index, signedTransactionChain, my_public_key, previous_hash):
+    print("Hakkan blokki kokku panema")
     stringLength = 20
     lettersAndDigits = string.ascii_letters + string.digits
 
@@ -120,8 +121,8 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
         # print("%s:%s sent:" % (self.client_address[0], self.client_address[1]))
 
         global host
-        chain_string = self.request.recv(1024).strip()
-        data_list = chain_string.decode().split('\n')
+        chain_string = self.request.recv(4096).strip()
+        data_list = chain_string.decode('ascii').split('\n')
 
         request_method = data_list[0].split(' ')[0]
         request_path = data_list[0].split(' ')[1]
@@ -203,6 +204,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
             request_path = headers[0].split(' ')[1]
 
             if '/block' in request_path:  # /block
+                print("/block Mulle saadeti uus blokk:", body)
                 received_block_json = json.loads(body)
                 signedTransactionChain = SignedTransactionChain([])
                 for transaction_json in received_block_json['transactions']:
@@ -217,23 +219,22 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                                          received_block_json['nonce'], received_block_json['creator'],
                                          signedTransactionChain, received_block_json['previous_hash'])
                 blockChain = readBlockChainFromFile()
+                print("Hakkan saadud blokki kontrollima")
                 if is_valid_merkle_root(received_block, received_block_json['merkle_root']):
+                    print("Merkle root on oige")
                     if blockChain.add_block(received_block):
-                        # kirjuta blockchain faili tagasi
-                        # print("kirjuta blockchain faili tagasi")
-                        # print("uus blockchain",blockChain.to_string())
+                        print("Blokk lisati chaini")
                         writeBlockChainToFile(blockChain)
                         headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: plain/text\r\n\r\n' % 1
                         response = headers + "1"
                         self.request.sendall(response.encode())
 
-                        # '''
-                        #                     with open('peers-' + sys.argv[1] + '.json', 'r') as f:
-                        #     json_data = json.load(f)
-                        #     for peer in json_data['peers']:
-                        #         ip, port = peer.split(':')
-                        #         client_packet(ip, int(port), 'block', new_block)
-                        # '''
+                        with open('peers-' + sys.argv[1] + '.json', 'r') as f:
+                            json_data = json.load(f)
+                            for peer in json_data['peers']:
+                                ip, port = peer.split(':')
+                                client_packet(ip, int(port), 'block', received_block, "127.0.0.1:" + sys.argv[1])
+
 
                     else:
                         self.request.sendall(get_error_msg("Received block is not valid for my blockchain!"))
@@ -243,7 +244,7 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 
 
             elif '/inv' in request_path:
-
+                print("Kuulan /inv päringut")
                 received_transaction = json.loads(body)
                 transactionV2 = TransactionV2(received_transaction['transaction']['from'],
                                               received_transaction['transaction']['to'],
@@ -276,44 +277,57 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                         bytearray.fromhex(signed_transaction.transaction.trn_from))
                     try:
                         if new_public_key.verify(new_signature, new_message):  # verifitseeri saadud transaktsioon
+
                             blockChain = readBlockChainFromFile()
-                            blockChain.has_enough_funds(public_key.to_string().hex(),
-                                                        signed_transaction.transaction.trn_sum)
-                            # TODO: fixi kas transaktsiooni tegijal on piisavalt raha
+                            balance = blockChain.wallet_balance_by_pk(public_key.to_string().hex())
+                            if balance >= signed_transaction.transaction.trn_sum:
 
-                            signedTransactionChain.add_transaction(signed_transaction)
-                            print("transaktsioonide arv:", len(signedTransactionChain.chain))
-                            if len(
-                                    signedTransactionChain.chain) >= n_transactions:  # Vaata kas on kogunenud n transaktsiooni
-                                signedTransactionChain.add_transaction(oneBitcoinTransactionToMyWallet())
-                                currentBlockChain = readBlockChainFromFile()
-                                latest_block = currentBlockChain.get_latest_block()
-                                new_block_in_da_hood = startCreatingBlock(latest_block.nr + 1, signedTransactionChain,
-                                                                          public_key, latest_block.hash)
-                                print("new_block_in_da_hood", new_block_in_da_hood.to_string())
-                                currentBlockChain.add_block(new_block_in_da_hood)
-                                writeBlockChainToFile(currentBlockChain)
+                                signedTransactionChain.add_transaction(signed_transaction)
+                                transactions_file = open('transactions-' + sys.argv[1] + '.json', "w+")
+                                transactions_file.write(signedTransactionChain.to_string())
+                                transactions_file.close()
 
+                                headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: plain/text\r\n\r\n' % 1
+                                response = headers + "1"
+                                self.request.sendall(response.encode())
+                                # saada teistele transactioneid edasi client_blocks(received_transaction)
+                                with open('peers-' + sys.argv[1] + '.json', 'r') as f:
+                                    json_data = json.load(f)
+                                    for peer in json_data['peers']:
+                                        ip, port = peer.split(':')
+                                        client_packet(ip, int(port), 'transaction', signed_transaction,
+                                                      "127.0.0.1:" + sys.argv[1])
+                                print("transaktsioonide arv:", len(signedTransactionChain.chain))
+                                if len(
+                                        signedTransactionChain.chain) >= n_transactions:  # Vaata kas on kogunenud n transaktsiooni
+                                    signedTransactionChain.add_transaction(oneBitcoinTransactionToMyWallet())
+                                    currentBlockChain = readBlockChainFromFile()
+                                    latest_block = currentBlockChain.get_latest_block()
+                                    new_block_in_da_hood = startCreatingBlock(latest_block.nr + 1,
+                                                                              signedTransactionChain,
+                                                                              public_key, latest_block.hash)
+                                    print("Tegin uue bloki:", new_block_in_da_hood.to_string())
+                                    currentBlockChain.add_block(new_block_in_da_hood)
+                                    writeBlockChainToFile(currentBlockChain)
+                                    empty_transactions = SignedTransactionChain([])
+                                    transactions = open('transactions-' + sys.argv[1] + '.json', "w+")
+                                    transactions.write(empty_transactions.to_string())
+                                    transactions.close()
+                                    # saada teistele uus blokk edasi
+                                    with open('peers-' + sys.argv[1] + '.json', 'r') as f:
+                                        json_data = json.load(f)
+                                        for peer in json_data['peers']:
+                                            ip, port = peer.split(':')
+                                            client_packet(ip, int(port), 'block', new_block_in_da_hood,
+                                                          "127.0.0.1:" + sys.argv[1])
 
-
+                            else:
+                                self.request.sendall(get_error_msg("Sender has not enough funds."))
 
                     except BadSignatureError:
                         self.request.sendall(get_error_msg("Bad Signature Error"))
 
-                    transactions_file = open('transactions-' + sys.argv[1] + '.json', "w+")
-                    transactions_file.write(signedTransactionChain.to_string())
-                    transactions_file.close()
 
-                    headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: plain/text\r\n\r\n' % 1
-                    response = headers + "1"
-                    self.request.sendall(response.encode())
-                    # saada teistele transactioneid edasi client_blocks(received_transaction)
-                    with open('peers-' + sys.argv[1] + '.json', 'r') as f:
-                        json_data = json.load(f)
-                        for peer in json_data['peers']:
-                            ip, port = peer.split(':')
-                            client_packet(ip, int(port), 'transaction', signed_transaction,
-                                          "127.0.0.1:" + sys.argv[1])
 
             elif '/money' in request_path:
                 """
@@ -322,11 +336,13 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                 "sum": 4
                 }
                 """
-                global balance
+                blockChain = readBlockChainFromFile()
+                balance = blockChain.wallet_balance_by_pk(public_key.to_string().hex())
+
                 transaction_json = json.loads(body)
 
                 if transaction_json["sum"] <= balance:
-                    balance -= transaction_json["sum"]
+
                     transaction_object = TransactionV2(public_key.to_string().hex(),
                                                        transaction_json["to"],
                                                        transaction_json["sum"],
@@ -335,14 +351,19 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
                                                                                          'ascii')).hex(),
                                                                   transaction_object)
 
-                    # transaction_message = signed_transaction_object.to_string()
-
                     response_message = json.dumps(
-                        {"message": "Thanks! %s bitcoins are on the way." % transaction_json["sum"]})
+                        {"message": "Thanks! %s bitcoin(s) is on the way." % transaction_json["sum"]})
                     json_length = len(response_message)
                     headers = 'HTTP/1.1 200 OK\r\nContent-Length: %s\r\nContent-Type: json/application\r\n\r\n' % json_length
                     response = headers + response_message
                     self.request.sendall(response.encode())
+                    with open('peers-' + sys.argv[1] + '.json', 'r') as f:
+                        json_data = json.load(f)
+                        for peer in json_data['peers']:
+                            ip, port = peer.split(':')
+                            client_packet(ip, int(port), 'transaction', signed_transaction_object,
+                                          "127.0.0.1:" + sys.argv[1])
+
                 else:
                     self.request.sendall(get_error_msg("Sorry! Not enough funds."))
 
@@ -350,9 +371,10 @@ class ThreadedTCPRequestHandler(socketserver.BaseRequestHandler):
 if __name__ == "__main__":
     private_key = SigningKey.generate()
     public_key = private_key.verifying_key
-    # print("My private key is ", private_key.to_string())
-    # print("My public key is ", public_key.to_string())
-    balance = 10
+    print("My private key is ", private_key.to_string())
+    print("My public key is ", public_key.to_string())
+    print("My public key hex is ", public_key.to_string().hex())
+
     host_ip = "localhost"
     n_transactions = 2
 
@@ -381,6 +403,12 @@ if __name__ == "__main__":
     f.close()
     # Creating data for block
     taltechCoin = Blockchain()
+    myInitTrans = oneBitcoinTransactionToMyWallet()
+    myInitTransChain = SignedTransactionChain([myInitTrans, myInitTrans])
+    myInitBlock = startCreatingBlock(1, myInitTransChain, public_key,
+                                     "00008c26fa89c80d23ce0b98afb3bff429f828253c008b562ca8599606cb60e3")
+    taltechCoin.add_block(myInitBlock)
+    print("My balance is", taltechCoin.wallet_balance_by_pk(public_key.to_string().hex()))
     # print("taltechCoin:", taltechCoin.to_string())
     #  print(taltechCoin.get_latest_block().hash)
     blocks = open('blocks-' + sys.argv[1] + '.json', "w+")
